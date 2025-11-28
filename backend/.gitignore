@@ -1,0 +1,15 @@
+# Archivos de datos JSON (no versionar datos de desarrollo)
+data/
+
+# Node modules
+node_modules/
+
+# Variables de entorno
+.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# Uploads
+uploads/*
