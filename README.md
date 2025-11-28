@@ -7,8 +7,7 @@ Plataforma de intermediación de servicios móviles (Gig Economy) que conecta cl
 ## 🛠️ Stack Tecnológico
 
 - **Backend:** Node.js + Express.js
-- **Base de Datos:** PostgreSQL
-- **ORM:** Sequelize
+- **Base de Datos:** JSON (MVP) / PostgreSQL (futuro)
 - **Autenticación:** JWT (JSON Web Tokens)
 - **Frontend:** HTML/CSS/JS (básico para pruebas) + React Native (pendiente para Fase 2)
 
