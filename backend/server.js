@@ -24,6 +24,7 @@ const authRoutes = require('./routes/auth');
 const taskerRoutes = require('./routes/tasker');
 const adminRoutes = require('./routes/admin');
 const taskRoutes = require('./routes/task');
+const ratingRoutes = require('./routes/rating');
 
 // Crear aplicación Express
 const app = express();
@@ -42,6 +43,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tasker', taskerRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/task', taskRoutes);
+app.use('/api/rating', ratingRoutes);
 
 // Ruta de prueba/health check
 app.get('/', (req, res) => {
@@ -86,6 +88,18 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Configurar job periódico para auto-confirmar pagos
+const { autoConfirmPendingPayments } = require('./utils/autoConfirmPayment');
+
+// Ejecutar auto-confirmación cada hora (3600000 ms)
+setInterval(async () => {
+  try {
+    await autoConfirmPendingPayments();
+  } catch (error) {
+    console.error('Error en job de auto-confirmación:', error);
+  }
+}, 60 * 60 * 1000); // Cada hora
+
 // Iniciar servidor
 const startServer = async () => {
   try {
@@ -100,7 +114,13 @@ const startServer = async () => {
     // Iniciar servidor HTTP
     app.listen(PORT, () => {
       console.log(`\n✅ Servidor corriendo en http://localhost:${PORT}`);
-      console.log(`✅ Base de datos conectada correctamente\n`);
+      console.log(`✅ Base de datos conectada correctamente`);
+      console.log(`⏰ Job de auto-confirmación de pagos activo (cada 1 hora)\n`);
+      
+      // Ejecutar auto-confirmación una vez al iniciar
+      autoConfirmPendingPayments().catch(err => {
+        console.error('Error en auto-confirmación inicial:', err);
+      });
     });
   } catch (error) {
     console.error('❌ Error al iniciar el servidor:', error);

@@ -9,6 +9,7 @@
 // const { sequelize } = require('../config/database');
 const Tarea = require('../models/Tarea');
 const UsuarioCliente = require('../models/UsuarioCliente');
+const { checkAndAutoConfirmTask } = require('../utils/autoConfirmPayment');
 
 /**
  * Crear nueva Tarea
@@ -501,11 +502,496 @@ const getTaskApplications = async (req, res) => {
   }
 };
 
+/**
+ * Cliente acepta una aplicación (elige un tasker)
+ * POST /api/task/accept-application/:applicationId
+ * Solo el cliente dueño de la tarea puede aceptar aplicaciones
+ */
+const acceptApplication = async (req, res) => {
+  try {
+    const applicationId = parseInt(req.params.applicationId);
+
+    // Verificar que el usuario sea un cliente
+    if (req.user.tipo !== 'cliente') {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo los clientes pueden aceptar aplicaciones'
+      });
+    }
+
+    // Obtener la aplicación
+    const SolicitudTarea = require('../models/SolicitudTarea');
+    const aplicacion = await SolicitudTarea.findByPk(applicationId);
+
+    if (!aplicacion) {
+      return res.status(404).json({
+        error: 'Aplicación no encontrada',
+        message: 'La aplicación especificada no existe'
+      });
+    }
+
+    // Verificar que la aplicación es del tipo correcto
+    if (aplicacion.tipo !== 'APLICACION') {
+      return res.status(400).json({
+        error: 'Tipo inválido',
+        message: 'Esta no es una aplicación de tasker'
+      });
+    }
+
+    // Verificar que el cliente es dueño de la tarea
+    const tarea = await Tarea.findByPk(aplicacion.tarea_id);
+    if (!tarea) {
+      return res.status(404).json({
+        error: 'Tarea no encontrada',
+        message: 'La tarea asociada no existe'
+      });
+    }
+
+    if (tarea.cliente_id !== req.user.id) {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo puedes aceptar aplicaciones de tus propias tareas'
+      });
+    }
+
+    // Verificar que la tarea esté en estado PENDIENTE
+    if (tarea.estado !== 'PENDIENTE') {
+      return res.status(400).json({
+        error: 'Tarea no disponible',
+        message: 'Esta tarea ya no está disponible para asignar'
+      });
+    }
+
+    // Verificar que la aplicación esté pendiente
+    if (aplicacion.estado !== 'PENDIENTE') {
+      return res.status(400).json({
+        error: 'Aplicación no disponible',
+        message: 'Esta aplicación ya fue procesada'
+      });
+    }
+
+    // Verificar que el tasker existe y está aprobado
+    const Tasker = require('../models/Tasker');
+    const tasker = await Tasker.findByPk(aplicacion.tasker_id);
+    if (!tasker || !tasker.aprobado_admin) {
+      return res.status(400).json({
+        error: 'Tasker no válido',
+        message: 'El tasker no existe o no está aprobado'
+      });
+    }
+
+    // Actualizar la aplicación a ACEPTADA
+    await aplicacion.update({
+      estado: 'ACEPTADA'
+    });
+
+    // Actualizar la tarea: asignar tasker y cambiar estado
+    await tarea.update({
+      tasker_id: aplicacion.tasker_id,
+      estado: 'ASIGNADA'
+    });
+
+    // Rechazar automáticamente las otras aplicaciones pendientes de esta tarea
+    const todasLasAplicaciones = await SolicitudTarea.findAll({
+      where: {
+        tarea_id: tarea.id,
+        tipo: 'APLICACION',
+        estado: 'PENDIENTE'
+      }
+    });
+
+    // Filtrar para excluir la aplicación aceptada
+    const otrasAplicaciones = todasLasAplicaciones.filter(
+      app => app.id !== applicationId
+    );
+
+    for (const otraAplicacion of otrasAplicaciones) {
+      await otraAplicacion.update({
+        estado: 'RECHAZADA'
+      });
+    }
+
+    res.json({
+      message: 'Aplicación aceptada exitosamente. Tarea asignada al tasker.',
+      tarea: {
+        id: tarea.id,
+        estado: tarea.estado,
+        tasker_id: tarea.tasker_id
+      },
+      aplicacion: {
+        id: aplicacion.id,
+        estado: aplicacion.estado,
+        tasker: {
+          id: tasker.id,
+          nombre: tasker.nombre,
+          apellido: tasker.apellido
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error al aceptar aplicación:', error);
+    res.status(500).json({
+      error: 'Error al aceptar aplicación',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Obtener tareas asignadas al tasker
+ * GET /api/task/my-assigned-tasks
+ * Solo taskers pueden ver sus tareas asignadas
+ */
+const getMyAssignedTasks = async (req, res) => {
+  try {
+    // Verificar que el usuario sea un tasker
+    if (req.user.tipo !== 'tasker') {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo los taskers pueden ver sus tareas asignadas'
+      });
+    }
+
+    // Buscar tareas asignadas a este tasker (TODAS, sin filtrar por estado)
+    const todasLasTareas = await Tarea.findAll({
+      where: {
+        tasker_id: req.user.id
+      },
+      order: [['createdAt', 'DESC']]
+    });
+
+    // Devolver TODAS las tareas (el frontend filtrará según la pestaña)
+    const tareas = todasLasTareas;
+
+    // Incluir información del cliente para cada tarea
+    const UsuarioCliente = require('../models/UsuarioCliente');
+    const tareasConCliente = await Promise.all(
+      tareas.map(async (tarea) => {
+        const cliente = await UsuarioCliente.findByPk(tarea.cliente_id);
+        const tareaObj = tarea.id ? tarea : { ...tarea };
+        tareaObj.cliente = cliente ? {
+          id: cliente.id,
+          nombre: cliente.nombre,
+          apellido: cliente.apellido,
+          telefono: cliente.telefono
+        } : null;
+        return tareaObj;
+      })
+    );
+
+    res.json({
+      message: 'Tareas asignadas obtenidas exitosamente',
+      tareas: tareasConCliente,
+      total: tareasConCliente.length
+    });
+  } catch (error) {
+    console.error('Error al obtener tareas asignadas:', error);
+    res.status(500).json({
+      error: 'Error al obtener tareas asignadas',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Tasker marca tarea como "en proceso" (empezó el trabajo)
+ * POST /api/task/start/:id
+ * Solo el tasker asignado puede marcar la tarea como en proceso
+ */
+const startTask = async (req, res) => {
+  try {
+    const tareaId = parseInt(req.params.id);
+
+    // Verificar que el usuario sea un tasker
+    if (req.user.tipo !== 'tasker') {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo los taskers pueden marcar tareas como en proceso'
+      });
+    }
+
+    // Verificar que la tarea existe
+    const tarea = await Tarea.findByPk(tareaId);
+    if (!tarea) {
+      return res.status(404).json({
+        error: 'Tarea no encontrada',
+        message: 'La tarea especificada no existe'
+      });
+    }
+
+    // Verificar que la tarea está asignada a este tasker
+    if (tarea.tasker_id !== req.user.id) {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo puedes marcar como en proceso las tareas asignadas a ti'
+      });
+    }
+
+    // Verificar que la tarea está en estado ASIGNADA
+    if (tarea.estado !== 'ASIGNADA') {
+      return res.status(400).json({
+        error: 'Estado inválido',
+        message: `Solo puedes empezar tareas en estado ASIGNADA. Estado actual: ${tarea.estado}`
+      });
+    }
+
+    // Actualizar la tarea: cambiar estado y registrar fecha de inicio
+    await tarea.update({
+      estado: 'EN_PROCESO',
+      fecha_inicio_trabajo: new Date().toISOString()
+    });
+
+    res.json({
+      message: 'Tarea marcada como en proceso exitosamente',
+      tarea: {
+        id: tarea.id,
+        estado: tarea.estado,
+        fecha_inicio_trabajo: tarea.fecha_inicio_trabajo
+      }
+    });
+  } catch (error) {
+    console.error('Error al marcar tarea como en proceso:', error);
+    res.status(500).json({
+      error: 'Error al marcar tarea como en proceso',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Tasker marca tarea como finalizada (terminó el trabajo)
+ * POST /api/task/complete/:id
+ * Solo el tasker asignado puede finalizar la tarea
+ * Cambia estado: EN_PROCESO → PENDIENTE_PAGO
+ */
+const completeTask = async (req, res) => {
+  try {
+    const tareaId = parseInt(req.params.id);
+
+    // Verificar que el usuario sea un tasker
+    if (req.user.tipo !== 'tasker') {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo los taskers pueden finalizar tareas'
+      });
+    }
+
+    // Verificar que la tarea existe
+    const tarea = await Tarea.findByPk(tareaId);
+    if (!tarea) {
+      return res.status(404).json({
+        error: 'Tarea no encontrada',
+        message: 'La tarea especificada no existe'
+      });
+    }
+
+    // Verificar que la tarea está asignada a este tasker
+    if (tarea.tasker_id !== req.user.id) {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo puedes finalizar las tareas asignadas a ti'
+      });
+    }
+
+    // Verificar que la tarea está en estado EN_PROCESO
+    if (tarea.estado !== 'EN_PROCESO') {
+      return res.status(400).json({
+        error: 'Estado inválido',
+        message: `Solo puedes finalizar tareas en estado EN_PROCESO. Estado actual: ${tarea.estado}`
+      });
+    }
+
+    // Actualizar la tarea: cambiar estado y registrar fecha de finalización
+    await tarea.update({
+      estado: 'PENDIENTE_PAGO',
+      fecha_finalizacion_trabajo: new Date().toISOString()
+    });
+
+    res.json({
+      message: 'Tarea marcada como finalizada exitosamente. Esperando confirmación del cliente.',
+      tarea: {
+        id: tarea.id,
+        estado: tarea.estado,
+        fecha_finalizacion_trabajo: tarea.fecha_finalizacion_trabajo
+      }
+    });
+  } catch (error) {
+    console.error('Error al finalizar tarea:', error);
+    res.status(500).json({
+      error: 'Error al finalizar tarea',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Cliente confirma pago (está conforme con el trabajo)
+ * POST /api/task/confirm-payment/:id
+ * Solo el cliente dueño de la tarea puede confirmar el pago
+ * Cambia estado: PENDIENTE_PAGO → FINALIZADA
+ */
+const confirmPayment = async (req, res) => {
+  try {
+    const tareaId = parseInt(req.params.id);
+
+    // Verificar que el usuario sea un cliente
+    if (req.user.tipo !== 'cliente') {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo los clientes pueden confirmar el pago'
+      });
+    }
+
+    // Verificar que la tarea existe
+    const tarea = await Tarea.findByPk(tareaId);
+    if (!tarea) {
+      return res.status(404).json({
+        error: 'Tarea no encontrada',
+        message: 'La tarea especificada no existe'
+      });
+    }
+
+    // Verificar que la tarea pertenece a este cliente
+    if (tarea.cliente_id !== req.user.id) {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo puedes confirmar el pago de tus propias tareas'
+      });
+    }
+
+    // Verificar auto-confirmación antes de verificar estado
+    await checkAndAutoConfirmTask(tareaId);
+    
+    // Recargar la tarea por si fue auto-confirmada
+    const tareaActualizada = await Tarea.findByPk(tareaId);
+    
+    // Verificar que la tarea está en estado PENDIENTE_PAGO
+    if (tareaActualizada.estado !== 'PENDIENTE_PAGO') {
+      if (tareaActualizada.estado === 'FINALIZADA' && tareaActualizada.auto_confirmado) {
+        return res.json({
+          message: 'La tarea fue auto-confirmada (pasaron más de 48 horas)',
+          tarea: {
+            id: tareaActualizada.id,
+            estado: tareaActualizada.estado,
+            auto_confirmado: true
+          }
+        });
+      }
+      return res.status(400).json({
+        error: 'Estado inválido',
+        message: `Solo puedes confirmar el pago de tareas en estado PENDIENTE_PAGO. Estado actual: ${tareaActualizada.estado}`
+      });
+    }
+
+    // Actualizar la tarea: cambiar estado a FINALIZADA
+    await tareaActualizada.update({
+      estado: 'FINALIZADA',
+      fecha_confirmacion_pago: new Date().toISOString(),
+      auto_confirmado: false // Confirmado manualmente
+    });
+
+    res.json({
+      message: 'Pago confirmado exitosamente. La tarea ha sido finalizada.',
+      tarea: {
+        id: tareaActualizada.id,
+        estado: tareaActualizada.estado,
+        fecha_confirmacion_pago: tareaActualizada.fecha_confirmacion_pago
+      }
+    });
+  } catch (error) {
+    console.error('Error al confirmar pago:', error);
+    res.status(500).json({
+      error: 'Error al confirmar pago',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Tasker confirma que recibió el pago
+ * POST /api/task/confirm-payment-received/:id
+ * Solo el tasker asignado puede confirmar que recibió el pago
+ * Solo disponible para tareas en estado FINALIZADA
+ */
+const confirmPaymentReceived = async (req, res) => {
+  try {
+    const tareaId = parseInt(req.params.id);
+
+    // Verificar que el usuario sea un tasker
+    if (req.user.tipo !== 'tasker') {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo los taskers pueden confirmar recepción de pago'
+      });
+    }
+
+    // Verificar que la tarea existe
+    const tarea = await Tarea.findByPk(tareaId);
+    if (!tarea) {
+      return res.status(404).json({
+        error: 'Tarea no encontrada',
+        message: 'La tarea especificada no existe'
+      });
+    }
+
+    // Verificar que la tarea está asignada a este tasker
+    if (tarea.tasker_id !== req.user.id) {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo puedes confirmar recepción de pago de tus propias tareas'
+      });
+    }
+
+    // Verificar que la tarea está finalizada
+    if (tarea.estado !== 'FINALIZADA') {
+      return res.status(400).json({
+        error: 'Estado inválido',
+        message: `Solo puedes confirmar recepción de pago de tareas finalizadas. Estado actual: ${tarea.estado}`
+      });
+    }
+
+    // Verificar que no haya confirmado ya
+    if (tarea.pago_recibido_tasker) {
+      return res.status(400).json({
+        error: 'Ya confirmado',
+        message: 'Ya has confirmado la recepción del pago para esta tarea'
+      });
+    }
+
+    // Actualizar la tarea: marcar que el tasker recibió el pago
+    await tarea.update({
+      pago_recibido_tasker: true,
+      fecha_confirmacion_recepcion_pago: new Date().toISOString()
+    });
+
+    res.json({
+      message: 'Recepción de pago confirmada exitosamente',
+      tarea: {
+        id: tarea.id,
+        pago_recibido_tasker: tarea.pago_recibido_tasker,
+        fecha_confirmacion_recepcion_pago: tarea.fecha_confirmacion_recepcion_pago
+      }
+    });
+  } catch (error) {
+    console.error('Error al confirmar recepción de pago:', error);
+    res.status(500).json({
+      error: 'Error al confirmar recepción de pago',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   createTask,
   getUserTasks,
   getAvailableTasks,
   applyToTask,
-  getTaskApplications
+  getTaskApplications,
+  acceptApplication,
+  getMyAssignedTasks,
+  startTask,
+  completeTask,
+  confirmPayment,
+  confirmPaymentReceived
 };
 

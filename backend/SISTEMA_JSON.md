@@ -113,3 +113,4 @@ El sistema funciona automáticamente. Los archivos se crean automáticamente cua
 
 No necesitas hacer nada especial - simplemente usa la API como siempre y los datos se guardarán en los archivos JSON.
 
+

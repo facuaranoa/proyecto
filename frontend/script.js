@@ -451,8 +451,9 @@ async function createTask(event) {
             // Reiniciar el wizard
             resetWizard();
 
-            // Recargar la lista de tareas del usuario
-            loadUserTasks();
+            // Recargar las listas de tareas del usuario
+            loadClientPendingTasks(); // Recargar tareas pendientes de asignar
+            loadClientAssignedTasks(); // Recargar tareas asignadas
         } else {
             showMessage(`❌ Error: ${data.message || 'Error desconocido'}`, 'error');
         }
@@ -915,11 +916,21 @@ function showTasksContent() {
 
     if (userType === 'cliente') {
         console.log('👤 RENDERIZANDO DASHBOARD CLIENTE');
-        // Para clientes: formulario wizard para crear tarea + lista de sus tareas
+        // Para clientes: pestañas para organizar tareas
         tasksHTML += `
             <div class="tasks-section">
-                <div class="create-task-section">
-                    <h3>➕ Crear Nueva Tarea</h3>
+                <!-- PESTAÑAS PARA CLIENTE -->
+                <div class="client-tabs">
+                    <button class="client-tab-btn active" onclick="showClientTab('create')" id="tab-create">➕ Crear Tarea</button>
+                    <button class="client-tab-btn" onclick="showClientTab('pending')" id="tab-pending">⏳ Pendientes de Asignar</button>
+                    <button class="client-tab-btn" onclick="showClientTab('assigned')" id="tab-assigned">📋 Tareas Asignadas</button>
+                    <button class="client-tab-btn" onclick="showClientTab('history')" id="tab-history">📜 Historial</button>
+                </div>
+
+                <!-- CONTENIDO: CREAR TAREA -->
+                <div id="client-tab-create" class="client-tab-content active">
+                    <div class="create-task-section">
+                        <h3>➕ Crear Nueva Tarea</h3>
 
                     <!-- WIZARD FORM -->
                     <div id="taskWizard" class="task-wizard">
@@ -1107,10 +1118,30 @@ function showTasksContent() {
                     </form>
                 </div>
 
-                <div class="my-tasks-section">
-                    <h3>📋 Mis Tareas Creadas</h3>
-                    <div id="myTasksList" class="tasks-list">
-                        <p class="no-tasks">Cargando tareas...</p>
+                    </div>
+                </div>
+
+                <!-- CONTENIDO: TAREAS PENDIENTES DE ASIGNAR -->
+                <div id="client-tab-pending" class="client-tab-content">
+                    <h3>⏳ Tareas Pendientes de Asignar</h3>
+                    <div id="pendingTasksList" class="tasks-list">
+                        <p class="no-tasks">Cargando tareas pendientes...</p>
+                    </div>
+                </div>
+
+                <!-- CONTENIDO: TAREAS ASIGNADAS/EN PROCESO -->
+                <div id="client-tab-assigned" class="client-tab-content">
+                    <h3>📋 Tareas Asignadas y en Proceso</h3>
+                    <div id="assignedTasksList" class="tasks-list">
+                        <p class="no-tasks">Cargando tareas asignadas...</p>
+                    </div>
+                </div>
+
+                <!-- CONTENIDO: HISTORIAL -->
+                <div id="client-tab-history" class="client-tab-content">
+                    <h3>📜 Historial de Tareas</h3>
+                    <div id="historyTasksList" class="tasks-list">
+                        <p class="no-tasks">Cargando historial...</p>
                     </div>
                 </div>
             </div>
@@ -1144,8 +1175,18 @@ function showTasksContent() {
             `;
         } else {
             tasksHTML += `
-                <div class="available-tasks-section">
-                    <h3>📋 Tareas Disponibles</h3>
+                <!-- PESTAÑAS PARA TASKER -->
+                <div class="tasker-tabs">
+                    <button class="tasker-tab-btn active" onclick="showTaskerTab('available')" id="tab-available">🔍 Búsqueda</button>
+                    <button class="tasker-tab-btn" onclick="showTaskerTab('assigned')" id="tab-assigned-tasker">📋 Asignadas</button>
+                    <button class="tasker-tab-btn" onclick="showTaskerTab('pending-payment')" id="tab-pending-payment">💳 Pendientes de Pago</button>
+                    <button class="tasker-tab-btn" onclick="showTaskerTab('history')" id="tab-history-tasker">📜 Historial</button>
+                </div>
+
+                <!-- CONTENIDO: TAREAS DISPONIBLES -->
+                <div id="tasker-tab-available" class="tasker-tab-content active">
+                    <div class="available-tasks-section">
+                        <h3>📋 Tareas Disponibles</h3>
 
                     <!-- FILTROS DE BÚSQUEDA -->
                     <div class="filters-section">
@@ -1205,6 +1246,31 @@ function showTasksContent() {
                     <div id="availableTasksList" class="tasks-list">
                         <p class="no-tasks">Cargando tareas disponibles...</p>
                     </div>
+                    </div>
+                </div>
+
+                <!-- CONTENIDO: TAREAS ASIGNADAS DEL TASKER -->
+                <div id="tasker-tab-assigned" class="tasker-tab-content">
+                    <h3>📋 Mis Tareas Asignadas</h3>
+                    <div id="taskerAssignedTasksList" class="tasks-list">
+                        <p class="no-tasks">Cargando tareas asignadas...</p>
+                    </div>
+                </div>
+
+                <!-- CONTENIDO: TAREAS PENDIENTES DE PAGO -->
+                <div id="tasker-tab-pending-payment" class="tasker-tab-content">
+                    <h3>💳 Tareas Pendientes de Pago</h3>
+                    <div id="taskerPendingPaymentList" class="tasks-list">
+                        <p class="no-tasks">Cargando tareas pendientes de pago...</p>
+                    </div>
+                </div>
+
+                <!-- CONTENIDO: HISTORIAL DEL TASKER -->
+                <div id="tasker-tab-history" class="tasker-tab-content">
+                    <h3>📜 Historial de Tareas</h3>
+                    <div id="taskerHistoryList" class="tasks-list">
+                        <p class="no-tasks">Cargando historial...</p>
+                    </div>
                 </div>
             `;
         }
@@ -1217,7 +1283,9 @@ function showTasksContent() {
     // Si es cliente, agregar el event listener para el formulario
     if (userType === 'cliente') {
         document.getElementById('taskForm').addEventListener('submit', createTask);
-        loadUserTasks(); // Cargar las tareas del usuario
+        loadClientPendingTasks(); // Cargar tareas pendientes de asignar
+        loadClientAssignedTasks(); // Cargar tareas asignadas/en proceso
+        loadClientHistoryTasks(); // Cargar historial
         
         // Inicializar el wizard después de que el DOM esté listo
         setTimeout(() => {
@@ -1229,6 +1297,9 @@ function showTasksContent() {
         console.log('👨‍💼 Admin en panel de tareas - usar panel ADMIN para gestionar');
     } else if (currentUser.aprobado_admin) {
         loadAvailableTasks(); // Cargar tareas disponibles para taskers aprobados
+        loadTaskerAssignedTasks(); // Cargar tareas asignadas del tasker
+        loadTaskerPendingPaymentTasks(); // Cargar tareas pendientes de pago
+        loadTaskerHistoryTasks(); // Cargar historial del tasker
         // Inicializar filtros después de un breve delay para asegurar que el DOM esté listo
         setTimeout(initializeFilters, 100);
     }
@@ -1301,8 +1372,9 @@ async function loadUserTasks() {
                         'CANCELADA': '#ef4444'
                     }[tarea.estado] || '#6b7280';
 
+                    const tareaJson = JSON.stringify(tarea).replace(/"/g, '&quot;');
                     tasksHTML += `
-                        <div class="task-item">
+                        <div class="task-item" data-tarea='${tareaJson}' onclick="openTaskModalFromData(this)" style="cursor: pointer;">
                             <div class="task-header">
                                 <h4>${tarea.descripcion.split(':')[0]}</h4>
                                 <span class="task-status" style="background: ${estadoColor}">${tarea.estado}</span>
@@ -1314,7 +1386,7 @@ async function loadUserTasks() {
                                 <p><strong>Monto:</strong> $${tarea.monto_total_acordado}</p>
                             </div>
                             ${tarea.estado === 'PENDIENTE' ? `
-                                <div class="task-actions">
+                                <div class="task-actions" onclick="event.stopPropagation();">
                                     <button class="view-applications-btn" onclick="loadTaskApplications(${tarea.id})">👥 Ver Aplicaciones</button>
                                 </div>
                                 <div id="applications-${tarea.id}" class="applications-container" style="display: none;"></div>
@@ -1428,16 +1500,976 @@ async function loadTaskApplications(tareaId) {
     }
 }
 
-// Función para aceptar una aplicación (pendiente de implementar)
+// Función para aceptar una aplicación
 async function acceptApplication(applicationId, tareaId) {
-    showMessage('⚠️ Funcionalidad en desarrollo: Aceptar aplicación', 'info');
-    // TODO: Implementar lógica para aceptar aplicación
+    if (!confirm('¿Estás seguro de que quieres aceptar a este tasker? La tarea será asignada y las otras aplicaciones serán rechazadas.')) {
+        return;
+    }
+
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/task/accept-application/${applicationId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage('✅ ¡Tasker aceptado! La tarea ha sido asignada exitosamente.', 'success');
+            
+            // Recargar las aplicaciones y las tareas
+            setTimeout(() => {
+                loadTaskApplications(tareaId);
+                loadClientPendingTasks(); // Recargar tareas pendientes
+                loadClientAssignedTasks(); // Recargar tareas asignadas del cliente
+            }, 1000);
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al aceptar aplicación'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error aceptando aplicación:', error);
+        showMessage('❌ Error de conexión al aceptar aplicación', 'error');
+    }
 }
 
 // Función para rechazar una aplicación (pendiente de implementar)
 async function rejectApplication(applicationId) {
     showMessage('⚠️ Funcionalidad en desarrollo: Rechazar aplicación', 'info');
     // TODO: Implementar lógica para rechazar aplicación
+}
+
+// ========== FUNCIONES PARA PESTAÑAS DE CLIENTE ==========
+
+// Función para cambiar entre pestañas del cliente
+function showClientTab(tabName) {
+    // Ocultar todas las pestañas
+    document.querySelectorAll('.client-tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Desactivar todos los botones
+    document.querySelectorAll('.client-tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Mostrar la pestaña seleccionada
+    const tabContent = document.getElementById(`client-tab-${tabName}`);
+    const tabBtn = document.getElementById(`tab-${tabName}`);
+    
+    if (tabContent) {
+        tabContent.classList.add('active');
+    }
+    if (tabBtn) {
+        tabBtn.classList.add('active');
+    }
+    
+    // Cargar datos según la pestaña
+    if (tabName === 'assigned') {
+        loadClientAssignedTasks();
+    } else if (tabName === 'history') {
+        loadClientHistoryTasks();
+    } else if (tabName === 'pending') {
+        loadClientPendingTasks();
+    }
+}
+
+// Función para cargar tareas pendientes de asignar del cliente
+async function loadClientPendingTasks() {
+    try {
+        const response = await fetch(`${API_BASE}/task/my-tasks`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        const pendingTasksList = document.getElementById('pendingTasksList');
+
+        if (response.ok && pendingTasksList) {
+            const todasLasTareas = data.tareas || [];
+            // Filtrar solo las pendientes (sin asignar)
+            const tareasPendientes = todasLasTareas.filter(t => t.estado === 'PENDIENTE');
+
+            if (tareasPendientes.length > 0) {
+                let tasksHTML = '';
+
+                tareasPendientes.forEach(tarea => {
+                    const fecha = new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES');
+                    const estadoColor = '#f59e0b';
+                    
+                    const tareaJson = JSON.stringify(tarea).replace(/"/g, '&quot;');
+                    tasksHTML += `
+                        <div class="task-item" data-tarea='${tareaJson}' onclick="openTaskModalFromData(this)" style="cursor: pointer;">
+                            <div class="task-header">
+                                <h4>${tarea.descripcion ? tarea.descripcion.split(':')[0] : 'Sin título'}</h4>
+                                <span class="task-status" style="background: ${estadoColor}">Pendiente</span>
+                            </div>
+                            <div class="task-details">
+                                <p><strong>Tipo:</strong> ${tarea.tipo_servicio}</p>
+                                <p><strong>Dirección:</strong> ${tarea.ubicacion ? tarea.ubicacion.direccion : 'No especificada'}</p>
+                                <p><strong>Fecha:</strong> ${fecha}</p>
+                                <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
+                            </div>
+                            <div class="task-actions" onclick="event.stopPropagation();">
+                                <button class="view-applications-btn" onclick="loadTaskApplications(${tarea.id})">👥 Ver Aplicaciones</button>
+                            </div>
+                            <div id="applications-${tarea.id}" class="applications-container" style="display: none;"></div>
+                        </div>
+                    `;
+                });
+
+                pendingTasksList.innerHTML = tasksHTML;
+            } else {
+                pendingTasksList.innerHTML = `
+                    <div class="no-tasks-message">
+                        <p>⏳ No tienes tareas pendientes de asignar.</p>
+                        <p>Todas tus tareas ya tienen un tasker asignado o están en proceso.</p>
+                    </div>
+                `;
+            }
+        } else if (pendingTasksList) {
+            pendingTasksList.innerHTML = `<p class="error">Error: ${data.message || 'Error al cargar tareas'}</p>`;
+        }
+    } catch (error) {
+        console.error('Error cargando tareas pendientes:', error);
+        const pendingTasksList = document.getElementById('pendingTasksList');
+        if (pendingTasksList) {
+            pendingTasksList.innerHTML = '<p class="error">Error al cargar tareas pendientes</p>';
+        }
+    }
+}
+
+// Función para cargar tareas asignadas/en proceso del cliente
+async function loadClientAssignedTasks() {
+    try {
+        const response = await fetch(`${API_BASE}/task/my-tasks`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        const assignedTasksList = document.getElementById('assignedTasksList');
+
+        if (response.ok && assignedTasksList) {
+            const todasLasTareas = data.tareas || [];
+            // Filtrar solo las asignadas/en proceso
+            const tareasAsignadas = todasLasTareas.filter(t => 
+                ['ASIGNADA', 'EN_PROCESO', 'PENDIENTE_PAGO'].includes(t.estado)
+            );
+
+            if (tareasAsignadas.length > 0) {
+                let tasksHTML = '';
+
+                tareasAsignadas.forEach(tarea => {
+                    const fecha = new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES');
+                    const estadoColor = {
+                        'ASIGNADA': '#3b82f6',
+                        'EN_PROCESO': '#8b5cf6',
+                        'PENDIENTE_PAGO': '#f59e0b'
+                    }[tarea.estado] || '#6b7280';
+                    
+                    const estadoTexto = {
+                        'ASIGNADA': 'Tarea Asignada',
+                        'EN_PROCESO': 'En Proceso',
+                        'PENDIENTE_PAGO': 'Pendiente de Pago'
+                    }[tarea.estado] || tarea.estado;
+
+                    tasksHTML += `
+                        <div class="task-item" onclick="openTaskModal(${JSON.stringify(tarea).replace(/"/g, '&quot;')})" style="cursor: pointer;">
+                            <div class="task-header">
+                                <h4>${tarea.descripcion ? tarea.descripcion.split(':')[0] : 'Sin título'}</h4>
+                                <span class="task-status" style="background: ${estadoColor}">${estadoTexto}</span>
+                            </div>
+                            <div class="task-details">
+                                <p><strong>Tipo:</strong> ${tarea.tipo_servicio}</p>
+                                <p><strong>Dirección:</strong> ${tarea.ubicacion ? tarea.ubicacion.direccion : 'No especificada'}</p>
+                                <p><strong>Fecha:</strong> ${fecha}</p>
+                                <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
+                                ${tarea.tasker_id ? '<p><strong>Tasker asignado:</strong> ID ' + tarea.tasker_id + '</p>' : ''}
+                            </div>
+                            ${tarea.estado === 'PENDIENTE_PAGO' ? `
+                                <div class="task-actions" onclick="event.stopPropagation();">
+                                    <button class="confirm-payment-btn" onclick="event.stopPropagation(); confirmPayment(${tarea.id})">💳 Confirmar Pago</button>
+                                </div>
+                            ` : ''}
+                            ${tarea.estado === 'FINALIZADA' ? `
+                                <div class="task-actions" onclick="event.stopPropagation();">
+                                    <button class="rate-task-btn" onclick="showRatingForm(${tarea.id})">⭐ Calificar</button>
+                                </div>
+                                <div id="rating-form-${tarea.id}" class="rating-form-container" style="display: none;"></div>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+
+                assignedTasksList.innerHTML = tasksHTML;
+            } else {
+                assignedTasksList.innerHTML = `
+                    <div class="no-tasks-message">
+                        <p>📋 No tienes tareas asignadas o en proceso.</p>
+                    </div>
+                `;
+            }
+        } else if (assignedTasksList) {
+            assignedTasksList.innerHTML = `<p class="error">Error: ${data.message || 'Error al cargar tareas'}</p>`;
+        }
+    } catch (error) {
+        console.error('Error cargando tareas asignadas:', error);
+        const assignedTasksList = document.getElementById('assignedTasksList');
+        if (assignedTasksList) {
+            assignedTasksList.innerHTML = '<p class="error">Error al cargar tareas asignadas</p>';
+        }
+    }
+}
+
+// Función para cargar historial de tareas del cliente
+async function loadClientHistoryTasks() {
+    try {
+        const response = await fetch(`${API_BASE}/task/my-tasks`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        const historyTasksList = document.getElementById('historyTasksList');
+
+        if (response.ok && historyTasksList) {
+            const todasLasTareas = data.tareas || [];
+            // Mostrar TODAS las tareas (excepto las pendientes de asignar que están en otra pestaña)
+            // Ordenar por fecha de creación (más recientes primero)
+            const tareasHistorial = todasLasTareas
+                .filter(t => t.estado !== 'PENDIENTE') // Excluir pendientes (están en otra pestaña)
+                .sort((a, b) => {
+                    const fechaA = new Date(a.createdAt || 0);
+                    const fechaB = new Date(b.createdAt || 0);
+                    return fechaB - fechaA; // Más recientes primero
+                });
+
+            if (tareasHistorial.length > 0) {
+                let tasksHTML = '';
+
+                tareasHistorial.forEach(tarea => {
+                    const fecha = new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES');
+                    const estadoColor = {
+                        'ASIGNADA': '#3b82f6',
+                        'EN_PROCESO': '#8b5cf6',
+                        'PENDIENTE_PAGO': '#f59e0b',
+                        'FINALIZADA': '#10b981',
+                        'CANCELADA': '#ef4444'
+                    }[tarea.estado] || '#6b7280';
+                    
+                    const estadoTexto = {
+                        'ASIGNADA': 'Tarea Asignada',
+                        'EN_PROCESO': 'En Proceso',
+                        'PENDIENTE_PAGO': 'Pendiente de Pago',
+                        'FINALIZADA': 'Finalizada',
+                        'CANCELADA': 'Cancelada'
+                    }[tarea.estado] || tarea.estado;
+
+                    const tareaJson = JSON.stringify(tarea).replace(/"/g, '&quot;');
+                    tasksHTML += `
+                        <div class="task-item" data-tarea='${tareaJson}' onclick="openTaskModalFromData(this)" style="cursor: pointer;">
+                            <div class="task-header">
+                                <h4>${tarea.descripcion ? tarea.descripcion.split(':')[0] : 'Sin título'}</h4>
+                                <span class="task-status" style="background: ${estadoColor}">${estadoTexto}</span>
+                            </div>
+                            <div class="task-details">
+                                <p><strong>Tipo:</strong> ${tarea.tipo_servicio}</p>
+                                <p><strong>Dirección:</strong> ${tarea.ubicacion ? tarea.ubicacion.direccion : 'No especificada'}</p>
+                                <p><strong>Fecha:</strong> ${fecha}</p>
+                                <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
+                                ${tarea.tasker_id ? '<p><strong>Tasker asignado:</strong> ID ' + tarea.tasker_id + '</p>' : ''}
+                            </div>
+                            ${tarea.estado === 'PENDIENTE_PAGO' ? `
+                                <div class="task-actions" onclick="event.stopPropagation();">
+                                    <button class="confirm-payment-btn" onclick="event.stopPropagation(); confirmPayment(${tarea.id})">💳 Confirmar Pago</button>
+                                </div>
+                            ` : ''}
+                            ${tarea.estado === 'FINALIZADA' ? `
+                                <div class="task-actions" onclick="event.stopPropagation();">
+                                    <button class="rate-task-btn" onclick="showRatingForm(${tarea.id})">⭐ Calificar</button>
+                                </div>
+                                <div id="rating-form-${tarea.id}" class="rating-form-container" style="display: none;"></div>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+
+                historyTasksList.innerHTML = tasksHTML;
+            } else {
+                historyTasksList.innerHTML = `
+                    <div class="no-tasks-message">
+                        <p>📜 Aún no tienes tareas en tu historial.</p>
+                    </div>
+                `;
+            }
+        } else if (historyTasksList) {
+            historyTasksList.innerHTML = `<p class="error">Error: ${data.message || 'Error al cargar historial'}</p>`;
+        }
+    } catch (error) {
+        console.error('Error cargando historial:', error);
+        const historyTasksList = document.getElementById('historyTasksList');
+        if (historyTasksList) {
+            historyTasksList.innerHTML = '<p class="error">Error al cargar historial</p>';
+        }
+    }
+}
+
+// ========== FUNCIONES PARA PESTAÑAS DE TASKER ==========
+
+// Función para cambiar entre pestañas del tasker
+function showTaskerTab(tabName) {
+    // Ocultar todas las pestañas
+    document.querySelectorAll('.tasker-tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Desactivar todos los botones
+    document.querySelectorAll('.tasker-tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Mostrar la pestaña seleccionada
+    const tabContent = document.getElementById(`tasker-tab-${tabName}`);
+    let tabBtnId = `tab-${tabName}`;
+    if (tabName === 'assigned') {
+        tabBtnId = 'tab-assigned-tasker';
+    } else if (tabName === 'pending-payment') {
+        tabBtnId = 'tab-pending-payment';
+    } else if (tabName === 'history') {
+        tabBtnId = 'tab-history-tasker';
+    }
+    const tabBtn = document.getElementById(tabBtnId);
+    
+    if (tabContent) {
+        tabContent.classList.add('active');
+    }
+    if (tabBtn) {
+        tabBtn.classList.add('active');
+    }
+    
+    // Cargar datos según la pestaña
+    if (tabName === 'assigned') {
+        loadTaskerAssignedTasks();
+    } else if (tabName === 'available') {
+        loadAvailableTasks();
+    } else if (tabName === 'pending-payment') {
+        loadTaskerPendingPaymentTasks();
+    } else if (tabName === 'history') {
+        loadTaskerHistoryTasks();
+    }
+}
+
+// Función para cargar tareas asignadas del tasker
+async function loadTaskerAssignedTasks() {
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/task/my-assigned-tasks`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        const taskerAssignedTasksList = document.getElementById('taskerAssignedTasksList');
+
+        if (response.ok && taskerAssignedTasksList) {
+            const tareas = data.tareas || [];
+
+            if (tareas.length > 0) {
+                let tasksHTML = '';
+
+                tareas.forEach(tarea => {
+                    const fecha = new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES');
+                    const estadoColor = {
+                        'ASIGNADA': '#3b82f6',
+                        'EN_PROCESO': '#8b5cf6',
+                        'PENDIENTE_PAGO': '#f59e0b'
+                    }[tarea.estado] || '#6b7280';
+                    
+                    const estadoTexto = {
+                        'ASIGNADA': 'Tarea Asignada',
+                        'EN_PROCESO': 'En Proceso',
+                        'PENDIENTE_PAGO': 'Pendiente de Pago'
+                    }[tarea.estado] || tarea.estado;
+
+                    const nombreCliente = tarea.cliente && tarea.cliente.nombre ? 
+                        `${tarea.cliente.nombre} ${tarea.cliente.apellido || ''}` : 'Cliente';
+
+                    tasksHTML += `
+                        <div class="task-item" onclick="openTaskModal(${JSON.stringify(tarea).replace(/"/g, '&quot;')})" style="cursor: pointer;">
+                            <div class="task-header">
+                                <h4>${tarea.descripcion ? tarea.descripcion.split(':')[0] : 'Sin título'}</h4>
+                                <span class="task-status" style="background: ${estadoColor}">${estadoTexto}</span>
+                            </div>
+                            <div class="task-details">
+                                <p><strong>Cliente:</strong> ${nombreCliente}</p>
+                                <p><strong>Tipo:</strong> ${tarea.tipo_servicio}</p>
+                                <p><strong>Dirección:</strong> ${tarea.ubicacion ? tarea.ubicacion.direccion : 'No especificada'}</p>
+                                <p><strong>Fecha:</strong> ${fecha}</p>
+                                <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
+                            </div>
+                            ${tarea.estado === 'ASIGNADA' ? `
+                                <div class="task-actions" onclick="event.stopPropagation();">
+                                    <button class="start-task-btn" onclick="startTask(${tarea.id})">▶️ Empezar Tarea</button>
+                                </div>
+                            ` : ''}
+                            ${tarea.estado === 'EN_PROCESO' ? `
+                                <div class="task-actions" onclick="event.stopPropagation();">
+                                    <button class="complete-task-btn" onclick="event.stopPropagation(); completeTask(${tarea.id})">✅ Finalizar Tarea</button>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+
+                taskerAssignedTasksList.innerHTML = tasksHTML;
+            } else {
+                taskerAssignedTasksList.innerHTML = `
+                    <div class="no-tasks-message">
+                        <p>📋 No tienes tareas asignadas.</p>
+                        <p>Ve a "Tareas Disponibles" para aplicar a nuevas tareas.</p>
+                    </div>
+                `;
+            }
+        } else if (taskerAssignedTasksList) {
+            taskerAssignedTasksList.innerHTML = `<p class="error">Error: ${data.message || 'Error al cargar tareas asignadas'}</p>`;
+        }
+    } catch (error) {
+        console.error('Error cargando tareas asignadas del tasker:', error);
+        const taskerAssignedTasksList = document.getElementById('taskerAssignedTasksList');
+        if (taskerAssignedTasksList) {
+            taskerAssignedTasksList.innerHTML = '<p class="error">Error al cargar tareas asignadas</p>';
+        }
+    }
+}
+
+// Función para que tasker marque tarea como "en proceso"
+async function startTask(taskId) {
+    if (!confirm('¿Estás seguro de que quieres empezar esta tarea? La tarea pasará a estado "En Proceso".')) {
+        return;
+    }
+
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/task/start/${taskId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage('✅ ¡Tarea marcada como en proceso!', 'success');
+            
+            // Recargar las tareas asignadas
+            setTimeout(() => {
+                loadTaskerAssignedTasks();
+            }, 1000);
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al empezar tarea'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error empezando tarea:', error);
+        showMessage('❌ Error de conexión al empezar tarea', 'error');
+    }
+}
+
+// Función para que tasker finalice la tarea
+async function completeTask(taskId) {
+    if (!confirm('¿Estás seguro de que terminaste el trabajo? La tarea pasará a estado "Pendiente de Pago" y esperará la confirmación del cliente.')) {
+        return;
+    }
+
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/task/complete/${taskId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage('✅ ¡Tarea finalizada! Esperando confirmación del cliente.', 'success');
+            
+            // Recargar las tareas asignadas
+            setTimeout(() => {
+                loadTaskerAssignedTasks();
+            }, 1000);
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al finalizar tarea'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error finalizando tarea:', error);
+        showMessage('❌ Error de conexión al finalizar tarea', 'error');
+    }
+}
+
+// Función para que cliente confirme el pago
+async function confirmPayment(taskId) {
+    if (!confirm('¿Estás conforme con el trabajo realizado? Al confirmar, el pago se liberará y la tarea se finalizará.')) {
+        return;
+    }
+
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/task/confirm-payment/${taskId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage('✅ ¡Pago confirmado! La tarea ha sido finalizada. Ahora puedes calificar al tasker.', 'success');
+            
+            // Recargar las tareas
+            setTimeout(() => {
+                loadClientAssignedTasks();
+                loadClientHistoryTasks();
+            }, 1000);
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al confirmar pago'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error confirmando pago:', error);
+        showMessage('❌ Error de conexión al confirmar pago', 'error');
+    }
+}
+
+// Función para que tasker confirme que recibió el pago
+async function confirmPaymentReceived(taskId) {
+    if (!confirm('¿Confirmas que recibiste el pago por esta tarea?')) {
+        return;
+    }
+
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/task/confirm-payment-received/${taskId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage('✅ ¡Recepción de pago confirmada!', 'success');
+            
+            // Recargar las tareas
+            setTimeout(() => {
+                loadTaskerHistoryTasks();
+                loadTaskerPendingPaymentTasks();
+            }, 1000);
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al confirmar recepción de pago'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error confirmando recepción de pago:', error);
+        showMessage('❌ Error de conexión al confirmar recepción de pago', 'error');
+    }
+}
+
+// ========== FUNCIONES PARA MODAL DE TAREA ==========
+
+// Función auxiliar para escapar HTML de forma segura
+function escapeHtml(text) {
+    if (!text) return '';
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+// Función para cargar tareas pendientes de pago del tasker
+async function loadTaskerPendingPaymentTasks() {
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/task/my-assigned-tasks`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        const taskerPendingPaymentList = document.getElementById('taskerPendingPaymentList');
+
+        if (response.ok && taskerPendingPaymentList) {
+            const todasLasTareas = data.tareas || [];
+            // Filtrar solo las pendientes de pago
+            const tareasPendientes = todasLasTareas.filter(t => t.estado === 'PENDIENTE_PAGO');
+
+            if (tareasPendientes.length > 0) {
+                let tasksHTML = '';
+
+                tareasPendientes.forEach(tarea => {
+                    const fecha = new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES');
+                    const fechaFinalizacion = tarea.fecha_finalizacion_trabajo ? 
+                        new Date(tarea.fecha_finalizacion_trabajo).toLocaleString('es-ES') : 'N/A';
+                    
+                    const nombreCliente = tarea.cliente && tarea.cliente.nombre ? 
+                        `${tarea.cliente.nombre} ${tarea.cliente.apellido || ''}` : 'Cliente';
+
+                    // Calcular tiempo transcurrido desde la finalización
+                    let tiempoEspera = '';
+                    if (tarea.fecha_finalizacion_trabajo) {
+                        const ahora = new Date();
+                        const fechaFin = new Date(tarea.fecha_finalizacion_trabajo);
+                        const horasTranscurridas = Math.round((ahora - fechaFin) / (60 * 60 * 1000));
+                        tiempoEspera = horasTranscurridas < 48 ? 
+                            `<p><strong>⏰ Tiempo de espera:</strong> ${horasTranscurridas} horas (auto-confirmación en ${48 - horasTranscurridas} horas)</p>` :
+                            '<p><strong>⏰ Estado:</strong> Lista para auto-confirmación</p>';
+                    }
+
+                    const tareaJson = JSON.stringify(tarea).replace(/"/g, '&quot;');
+                    tasksHTML += `
+                        <div class="task-item" data-tarea='${tareaJson}' onclick="openTaskModalFromData(this)" style="cursor: pointer;">
+                            <div class="task-header">
+                                <h4>${tarea.descripcion ? tarea.descripcion.split(':')[0] : 'Sin título'}</h4>
+                                <span class="task-status" style="background: #f59e0b">Pendiente de Pago</span>
+                            </div>
+                            <div class="task-details">
+                                <p><strong>Cliente:</strong> ${nombreCliente}</p>
+                                <p><strong>Tipo:</strong> ${tarea.tipo_servicio}</p>
+                                <p><strong>Dirección:</strong> ${tarea.ubicacion ? tarea.ubicacion.direccion : 'No especificada'}</p>
+                                <p><strong>Fecha:</strong> ${fecha}</p>
+                                <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
+                                <p><strong>Finalizada el:</strong> ${fechaFinalizacion}</p>
+                                ${tiempoEspera}
+                            </div>
+                            <div class="task-actions" onclick="event.stopPropagation();">
+                                <p class="payment-info">💳 Esperando confirmación del cliente. El pago se liberará automáticamente después de 48 horas si el cliente no responde.</p>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                taskerPendingPaymentList.innerHTML = tasksHTML;
+            } else {
+                taskerPendingPaymentList.innerHTML = `
+                    <div class="no-tasks-message">
+                        <p>💳 No tienes tareas pendientes de pago.</p>
+                    </div>
+                `;
+            }
+        } else if (taskerPendingPaymentList) {
+            taskerPendingPaymentList.innerHTML = `<p class="error">Error: ${data.message || 'Error al cargar tareas pendientes de pago'}</p>`;
+        }
+    } catch (error) {
+        console.error('Error cargando tareas pendientes de pago del tasker:', error);
+        const taskerPendingPaymentList = document.getElementById('taskerPendingPaymentList');
+        if (taskerPendingPaymentList) {
+            taskerPendingPaymentList.innerHTML = '<p class="error">Error al cargar tareas pendientes de pago</p>';
+        }
+    }
+}
+
+// Función para cargar historial del tasker
+async function loadTaskerHistoryTasks() {
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/task/my-assigned-tasks`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        const taskerHistoryList = document.getElementById('taskerHistoryList');
+
+        if (response.ok && taskerHistoryList) {
+            const todasLasTareas = data.tareas || [];
+            // Mostrar TODAS las tareas del tasker (ordenadas por fecha, más recientes primero)
+            const tareasHistorial = todasLasTareas.sort((a, b) => {
+                const fechaA = new Date(a.createdAt || 0);
+                const fechaB = new Date(b.createdAt || 0);
+                return fechaB - fechaA; // Más recientes primero
+            });
+
+            if (tareasHistorial.length > 0) {
+                let tasksHTML = '';
+
+                tareasHistorial.forEach(tarea => {
+                    const fecha = new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES');
+                    const fechaFinalizacion = tarea.fecha_confirmacion_pago ? 
+                        new Date(tarea.fecha_confirmacion_pago).toLocaleString('es-ES') : 'N/A';
+                    
+                    const nombreCliente = tarea.cliente && tarea.cliente.nombre ? 
+                        `${tarea.cliente.nombre} ${tarea.cliente.apellido || ''}` : 'Cliente';
+
+                    const estadoColor = {
+                        'ASIGNADA': '#3b82f6',
+                        'EN_PROCESO': '#8b5cf6',
+                        'PENDIENTE_PAGO': '#f59e0b',
+                        'FINALIZADA': '#10b981',
+                        'CANCELADA': '#ef4444'
+                    }[tarea.estado] || '#6b7280';
+                    
+                    const estadoTexto = {
+                        'ASIGNADA': 'Tarea Asignada',
+                        'EN_PROCESO': 'En Proceso',
+                        'PENDIENTE_PAGO': 'Pendiente de Pago',
+                        'FINALIZADA': 'Finalizada',
+                        'CANCELADA': 'Cancelada'
+                    }[tarea.estado] || tarea.estado;
+
+                    const tareaJson = JSON.stringify(tarea).replace(/"/g, '&quot;');
+                    tasksHTML += `
+                        <div class="task-item" data-tarea='${tareaJson}' onclick="openTaskModalFromData(this)" style="cursor: pointer;">
+                            <div class="task-header">
+                                <h4>${tarea.descripcion ? tarea.descripcion.split(':')[0] : 'Sin título'}</h4>
+                                <span class="task-status" style="background: ${estadoColor}">${estadoTexto}</span>
+                            </div>
+                            <div class="task-details">
+                                <p><strong>Cliente:</strong> ${nombreCliente}</p>
+                                <p><strong>Tipo:</strong> ${tarea.tipo_servicio}</p>
+                                <p><strong>Dirección:</strong> ${tarea.ubicacion ? tarea.ubicacion.direccion : 'No especificada'}</p>
+                                <p><strong>Fecha:</strong> ${fecha}</p>
+                                <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
+                                ${tarea.estado === 'FINALIZADA' ? `<p><strong>Finalizada el:</strong> ${fechaFinalizacion}</p>` : ''}
+                                ${tarea.auto_confirmado ? '<p><strong>ℹ️ Auto-confirmada</strong> (pasaron más de 48 horas)</p>' : ''}
+                                ${tarea.pago_recibido_tasker ? '<p><strong>✅ Pago recibido y confirmado</strong></p>' : ''}
+                            </div>
+                            ${tarea.estado === 'FINALIZADA' && !tarea.pago_recibido_tasker ? `
+                                <div class="task-actions" onclick="event.stopPropagation();">
+                                    <button class="confirm-payment-received-btn" onclick="event.stopPropagation(); confirmPaymentReceived(${tarea.id})">✅ Confirmar Recepción de Pago</button>
+                                </div>
+                            ` : ''}
+                            ${tarea.estado === 'FINALIZADA' ? `
+                                <div class="task-actions" onclick="event.stopPropagation();">
+                                    <button class="rate-task-btn" onclick="showRatingForm(${tarea.id})">⭐ Calificar</button>
+                                </div>
+                                <div id="rating-form-${tarea.id}" class="rating-form-container" style="display: none;"></div>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+
+                taskerHistoryList.innerHTML = tasksHTML;
+            } else {
+                taskerHistoryList.innerHTML = `
+                    <div class="no-tasks-message">
+                        <p>📜 Aún no tienes tareas en tu historial.</p>
+                        <p>Las tareas aparecerán aquí una vez que sean asignadas.</p>
+                    </div>
+                `;
+            }
+        } else if (taskerHistoryList) {
+            taskerHistoryList.innerHTML = `<p class="error">Error: ${data.message || 'Error al cargar historial'}</p>`;
+        }
+    } catch (error) {
+        console.error('Error cargando historial del tasker:', error);
+        const taskerHistoryList = document.getElementById('taskerHistoryList');
+        if (taskerHistoryList) {
+            taskerHistoryList.innerHTML = '<p class="error">Error al cargar historial</p>';
+        }
+    }
+}
+
+// Función auxiliar para abrir modal desde atributo data (usado en onclick)
+function openTaskModalFromData(element) {
+    try {
+        const tareaJson = element.getAttribute('data-tarea');
+        if (!tareaJson) {
+            console.error('No se encontró data-tarea en el elemento');
+            return;
+        }
+        // Reemplazar &quot; de vuelta a comillas
+        const tareaJsonFixed = tareaJson.replace(/&quot;/g, '"');
+        const tarea = JSON.parse(tareaJsonFixed);
+        openTaskModal(tarea);
+    } catch (e) {
+        console.error('Error parseando tarea desde data:', e);
+        showMessage('❌ Error al cargar detalles de la tarea', 'error');
+    }
+}
+
+// Función para abrir el modal con los detalles de la tarea
+function openTaskModal(tarea) {
+    const modal = document.getElementById('taskModal');
+    const modalContent = document.getElementById('taskModalContent');
+    
+    if (!modal || !modalContent) {
+        console.error('Modal no encontrado');
+        return;
+    }
+
+    const fecha = new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES');
+    const estadoColor = {
+        'PENDIENTE': '#f59e0b',
+        'ASIGNADA': '#3b82f6',
+        'EN_PROCESO': '#8b5cf6',
+        'PENDIENTE_PAGO': '#f59e0b',
+        'FINALIZADA': '#10b981',
+        'CANCELADA': '#ef4444'
+    }[tarea.estado] || '#6b7280';
+    
+    const estadoTexto = {
+        'PENDIENTE': 'Pendiente',
+        'ASIGNADA': 'Tarea Asignada',
+        'EN_PROCESO': 'En Proceso',
+        'PENDIENTE_PAGO': 'Pendiente de Pago',
+        'FINALIZADA': 'Finalizada',
+        'CANCELADA': 'Cancelada'
+    }[tarea.estado] || tarea.estado;
+
+    // Construir el HTML del modal (escapar HTML para seguridad)
+    const titulo = escapeHtml(tarea.descripcion ? tarea.descripcion.split(':')[0] : 'Detalles de la Tarea');
+    const descripcion = escapeHtml(tarea.descripcion || 'Sin descripción disponible');
+    
+    let modalHTML = `
+        <div class="task-modal-header">
+            <h2>${titulo}</h2>
+            <span class="task-modal-status" style="background: ${estadoColor}">${estadoTexto}</span>
+        </div>
+
+        <div class="task-modal-section">
+            <h3>📝 Descripción Completa</h3>
+            <div class="task-modal-description">${descripcion}</div>
+        </div>
+
+        <div class="task-modal-section">
+            <h3>ℹ️ Información General</h3>
+            <p><strong>Tipo de Servicio:</strong> ${escapeHtml(tarea.tipo_servicio || 'No especificado')}</p>
+            <p><strong>Fecha y Hora Requerida:</strong> ${fecha}</p>
+            <p><strong>Monto Total:</strong> $${tarea.monto_total_acordado || 0}</p>
+            ${tarea.requiere_licencia !== undefined ? `<p><strong>Requiere Licencia:</strong> ${tarea.requiere_licencia ? 'Sí' : 'No'}</p>` : ''}
+        </div>
+
+        <div class="task-modal-section">
+            <h3>📍 Ubicación</h3>
+            ${tarea.ubicacion ? `
+                <p><strong>Dirección:</strong> ${escapeHtml(tarea.ubicacion.direccion || 'No especificada')}</p>
+                ${tarea.ubicacion.ciudad ? `<p><strong>Ciudad:</strong> ${escapeHtml(tarea.ubicacion.ciudad)}</p>` : ''}
+                ${tarea.ubicacion.provincia ? `<p><strong>Provincia:</strong> ${escapeHtml(tarea.ubicacion.provincia)}</p>` : ''}
+                ${tarea.ubicacion.codigo_postal ? `<p><strong>Código Postal:</strong> ${escapeHtml(tarea.ubicacion.codigo_postal)}</p>` : ''}
+            ` : '<p>No se especificó ubicación</p>'}
+        </div>
+    `;
+
+    // Agregar información adicional según el contexto
+    if (tarea.cliente) {
+        const nombreCliente = escapeHtml((tarea.cliente.nombre || '') + ' ' + (tarea.cliente.apellido || ''));
+        const telefonoCliente = tarea.cliente.telefono ? escapeHtml(tarea.cliente.telefono) : '';
+        modalHTML += `
+            <div class="task-modal-section">
+                <h3>👤 Cliente</h3>
+                <p><strong>Nombre:</strong> ${nombreCliente}</p>
+                ${telefonoCliente ? `<p><strong>Teléfono:</strong> ${telefonoCliente}</p>` : ''}
+            </div>
+        `;
+    }
+
+    if (tarea.tasker_id) {
+        modalHTML += `
+            <div class="task-modal-section">
+                <h3>🔧 Tasker Asignado</h3>
+                <p><strong>ID:</strong> ${tarea.tasker_id}</p>
+            </div>
+        `;
+    }
+
+    if (tarea.fecha_inicio_trabajo) {
+        const fechaInicio = new Date(tarea.fecha_inicio_trabajo).toLocaleString('es-ES');
+        modalHTML += `
+            <div class="task-modal-section">
+                <h3>⏰ Fechas Importantes</h3>
+                <p><strong>Fecha de Inicio:</strong> ${fechaInicio}</p>
+            </div>
+        `;
+    }
+
+    if (tarea.createdAt) {
+        const fechaCreacion = new Date(tarea.createdAt).toLocaleString('es-ES');
+        modalHTML += `
+            <div class="task-modal-section">
+                <p><strong>Fecha de Creación:</strong> ${fechaCreacion}</p>
+            </div>
+        `;
+    }
+
+    modalContent.innerHTML = modalHTML;
+    modal.style.display = 'block';
+    
+    // Prevenir scroll del body cuando el modal está abierto
+    document.body.style.overflow = 'hidden';
+}
+
+// Función para cerrar el modal
+function closeTaskModal() {
+    const modal = document.getElementById('taskModal');
+    if (modal) {
+        modal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }
+}
+
+// Cerrar modal al hacer clic fuera de él
+window.onclick = function(event) {
+    const modal = document.getElementById('taskModal');
+    if (event.target === modal) {
+        closeTaskModal();
+    }
 }
 
 // Función para cargar tareas disponibles (taskers)
@@ -1497,8 +2529,9 @@ async function loadAvailableTasks(filtros = {}) {
                     const apellidoCliente = tarea.cliente && tarea.cliente.apellido ? tarea.cliente.apellido : '';
                     const direccion = tarea.ubicacion && tarea.ubicacion.direccion ? tarea.ubicacion.direccion : 'No especificada';
 
+                    const tareaJson = JSON.stringify(tarea).replace(/"/g, '&quot;');
                     tasksHTML += `
-                        <div class="task-item">
+                        <div class="task-item" data-tarea='${tareaJson}' onclick="openTaskModalFromData(this)" style="cursor: pointer;">
                             <div class="task-header">
                                 <h4>${tarea.descripcion ? tarea.descripcion.split(':')[0] : 'Sin título'}</h4>
                                 <span class="task-type">${tipoServicio}</span>
@@ -1510,7 +2543,7 @@ async function loadAvailableTasks(filtros = {}) {
                                 <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
                                 ${tarea.requiere_licencia ? '<p><strong>⚠️ Requiere licencia de conducir</strong></p>' : ''}
                             </div>
-                            <div class="task-actions">
+                            <div class="task-actions" onclick="event.stopPropagation();">
                                 ${tarea.ya_aplico ? 
                                     '<span class="already-applied">✅ Ya aplicaste a esta tarea</span>' : 
                                     `<button class="accept-btn" onclick="applyToTask(${tarea.id})">📝 Aplicar a Tarea</button>`

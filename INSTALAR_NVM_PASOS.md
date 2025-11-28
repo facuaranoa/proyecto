@@ -57,3 +57,4 @@ cd C:\Users\faranoa\Desktop\proyecto
 ## 🔗 Enlace directo:
 https://github.com/coreybutler/nvm-windows/releases
 
+

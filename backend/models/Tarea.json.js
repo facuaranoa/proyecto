@@ -23,9 +23,14 @@ class Tarea {
     this.monto_total_acordado = data.monto_total_acordado;
     this.comision_app = data.comision_app || 0.05; // 5% según definición de negocio
     this.estado = data.estado || 'PENDIENTE';
-    // Estados posibles: PENDIENTE, ASIGNADA, PENDIENTE_PAGO, FINALIZADA, CANCELADA
+    // Estados posibles: PENDIENTE, ASIGNADA, EN_PROCESO, PENDIENTE_PAGO, FINALIZADA, CANCELADA
     this.tiempo_respuesta_solicitud = data.tiempo_respuesta_solicitud || null; // Tiempo que el cliente eligió para esperar respuesta
     this.fecha_inicio_trabajo = data.fecha_inicio_trabajo || null; // Cuándo el tasker empezó el trabajo
+    this.fecha_finalizacion_trabajo = data.fecha_finalizacion_trabajo || null; // Cuándo el tasker terminó el trabajo
+    this.fecha_confirmacion_pago = data.fecha_confirmacion_pago || null; // Cuándo el cliente confirmó el pago
+    this.auto_confirmado = data.auto_confirmado || false; // Si fue auto-confirmado después de 48h
+    this.pago_recibido_tasker = data.pago_recibido_tasker || false; // Si el tasker confirmó que recibió el pago
+    this.fecha_confirmacion_recepcion_pago = data.fecha_confirmacion_recepcion_pago || null; // Cuándo el tasker confirmó que recibió el pago
     this.createdAt = data.createdAt || new Date().toISOString();
     this.updatedAt = data.updatedAt || new Date().toISOString();
     

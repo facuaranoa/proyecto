@@ -69,3 +69,4 @@ Si un compañero tiene Node.js instalado:
 
 ¿Qué opción prefieres? ¿Puedo ayudarte a configurar StackBlitz o Replit?
 
+

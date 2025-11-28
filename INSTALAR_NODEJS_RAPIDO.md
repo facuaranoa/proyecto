@@ -52,3 +52,4 @@ Si ves un número (ej: v20.11.0), entonces ejecuta:
 1. Reinicia tu computadora
 2. O busca manualmente dónde se instaló Node.js y agrega la ruta al PATH
 
+
