@@ -16,7 +16,7 @@ const Tasker = require('../models/Tasker');
  */
 const createRating = async (req, res) => {
   try {
-    const { tarea_id, estrellas, comentario } = req.body;
+    const { tarea_id, estrellas, puntualidad, calidad_trabajo, comunicacion, profesionalismo, comentario } = req.body;
 
     // Validaciones
     if (!tarea_id || !estrellas) {
@@ -26,10 +26,28 @@ const createRating = async (req, res) => {
       });
     }
 
-    if (estrellas < 1 || estrellas > 5) {
+    // Validar que todas las calificaciones estén entre 1 y 5
+    const validarCalificacion = (valor, nombre) => {
+      if (valor !== null && valor !== undefined) {
+        if (valor < 1 || valor > 5) {
+          return `${nombre} debe estar entre 1 y 5`;
+        }
+      }
+      return null;
+    };
+
+    const errores = [
+      validarCalificacion(estrellas, 'Calificación general'),
+      validarCalificacion(puntualidad, 'Puntualidad'),
+      validarCalificacion(calidad_trabajo, 'Calidad del trabajo'),
+      validarCalificacion(comunicacion, 'Comunicación'),
+      validarCalificacion(profesionalismo, 'Profesionalismo')
+    ].filter(e => e !== null);
+
+    if (errores.length > 0) {
       return res.status(400).json({
         error: 'Calificación inválida',
-        message: 'Las estrellas deben estar entre 1 y 5'
+        message: errores.join(', ')
       });
     }
 
@@ -48,6 +66,29 @@ const createRating = async (req, res) => {
         error: 'Tarea no finalizada',
         message: 'Solo puedes calificar tareas que estén finalizadas'
       });
+    }
+
+    // Verificar que la tarea haya empezado (debe tener fecha de inicio o estar en proceso/finalizada)
+    if (!tarea.fecha_inicio_trabajo && tarea.estado !== 'EN_PROCESO' && tarea.estado !== 'FINALIZADA') {
+      return res.status(400).json({
+        error: 'Tarea no iniciada',
+        message: 'Solo puedes calificar tareas que hayan empezado'
+      });
+    }
+
+    // Verificar plazo de 7 días desde la finalización
+    if (tarea.fecha_finalizacion_trabajo) {
+      const fechaFinalizacion = new Date(tarea.fecha_finalizacion_trabajo);
+      const fechaLimite = new Date(fechaFinalizacion);
+      fechaLimite.setDate(fechaLimite.getDate() + 7);
+      const ahora = new Date();
+
+      if (ahora > fechaLimite) {
+        return res.status(400).json({
+          error: 'Plazo vencido',
+          message: 'El plazo para calificar esta tarea ha vencido (7 días desde la finalización)'
+        });
+      }
     }
 
     // Verificar que el usuario está involucrado en la tarea
@@ -84,9 +125,26 @@ const createRating = async (req, res) => {
     });
 
     if (calificacionExistente) {
-      // Si ya existe, actualizar
+      // Verificar que no hayan pasado más de 7 días desde la creación de la calificación
+      const fechaCalificacion = new Date(calificacionExistente.createdAt);
+      const fechaLimiteEdicion = new Date(fechaCalificacion);
+      fechaLimiteEdicion.setDate(fechaLimiteEdicion.getDate() + 7);
+      const ahora = new Date();
+
+      if (ahora > fechaLimiteEdicion) {
+        return res.status(400).json({
+          error: 'Plazo vencido',
+          message: 'No puedes editar una calificación después de 7 días'
+        });
+      }
+
+      // Si ya existe y está dentro del plazo, actualizar
       await calificacionExistente.update({
         estrellas,
+        puntualidad: puntualidad || null,
+        calidad_trabajo: calidad_trabajo || null,
+        comunicacion: comunicacion || null,
+        profesionalismo: profesionalismo || null,
         comentario: comentario || null
       });
 
@@ -104,6 +162,10 @@ const createRating = async (req, res) => {
       calificado_id,
       calificado_tipo,
       estrellas,
+      puntualidad: puntualidad || null,
+      calidad_trabajo: calidad_trabajo || null,
+      comunicacion: comunicacion || null,
+      profesionalismo: profesionalismo || null,
       comentario: comentario || null
     });
 
@@ -161,6 +223,10 @@ const getUserRatings = async (req, res) => {
       calificaciones: calificaciones.map(c => ({
         id: c.id,
         estrellas: c.estrellas,
+        puntualidad: c.puntualidad,
+        calidad_trabajo: c.calidad_trabajo,
+        comunicacion: c.comunicacion,
+        profesionalismo: c.profesionalismo,
         comentario: c.comentario,
         createdAt: c.createdAt,
         tarea_id: c.tarea_id
@@ -198,6 +264,10 @@ const getTaskRatings = async (req, res) => {
         id: c.id,
         calificador_tipo: c.calificador_tipo,
         estrellas: c.estrellas,
+        puntualidad: c.puntualidad,
+        calidad_trabajo: c.calidad_trabajo,
+        comunicacion: c.comunicacion,
+        profesionalismo: c.profesionalismo,
         comentario: c.comentario,
         createdAt: c.createdAt
       }))
@@ -216,5 +286,7 @@ module.exports = {
   getUserRatings,
   getTaskRatings
 };
+
+
 
 

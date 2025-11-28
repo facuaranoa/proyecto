@@ -177,3 +177,5 @@
 **Recomendación:** Empezar con PWA + Capacitor para lanzar rápido, luego evaluar migración a React Native según necesidades.
 
 
+
+

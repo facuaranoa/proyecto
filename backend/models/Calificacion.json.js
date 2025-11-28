@@ -17,7 +17,11 @@ class Calificacion {
     this.calificador_tipo = data.calificador_tipo || null; // 'cliente' o 'tasker'
     this.calificado_id = data.calificado_id || null; // ID del usuario calificado
     this.calificado_tipo = data.calificado_tipo || null; // 'cliente' o 'tasker'
-    this.estrellas = data.estrellas || null; // 1-5 estrellas (obligatorio)
+    this.estrellas = data.estrellas || null; // 1-5 estrellas (obligatorio) - Calificación general
+    this.puntualidad = data.puntualidad || null; // 1-5 estrellas (opcional)
+    this.calidad_trabajo = data.calidad_trabajo || null; // 1-5 estrellas (opcional)
+    this.comunicacion = data.comunicacion || null; // 1-5 estrellas (opcional)
+    this.profesionalismo = data.profesionalismo || null; // 1-5 estrellas (opcional)
     this.comentario = data.comentario || null; // Comentario opcional
     this.createdAt = data.createdAt || new Date().toISOString();
     this.updatedAt = data.updatedAt || new Date().toISOString();

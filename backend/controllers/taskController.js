@@ -867,13 +867,14 @@ const confirmPayment = async (req, res) => {
     
     // Verificar que la tarea está en estado PENDIENTE_PAGO
     if (tareaActualizada.estado !== 'PENDIENTE_PAGO') {
-      if (tareaActualizada.estado === 'FINALIZADA' && tareaActualizada.auto_confirmado) {
+      if (tareaActualizada.estado === 'FINALIZADA') {
         return res.json({
-          message: 'La tarea fue auto-confirmada (pasaron más de 48 horas)',
+          message: 'La tarea ya está finalizada',
           tarea: {
             id: tareaActualizada.id,
             estado: tareaActualizada.estado,
-            auto_confirmado: true
+            fecha_confirmacion_pago: tareaActualizada.fecha_confirmacion_pago,
+            pago_recibido_tasker: tareaActualizada.pago_recibido_tasker
           }
         });
       }
@@ -883,21 +884,55 @@ const confirmPayment = async (req, res) => {
       });
     }
 
-    // Actualizar la tarea: cambiar estado a FINALIZADA
+    // Verificar si ya confirmó antes
+    if (tareaActualizada.fecha_confirmacion_pago) {
+      return res.json({
+        message: 'Ya confirmaste el pago de esta tarea. Esperando confirmación del tasker.',
+        tarea: {
+          id: tareaActualizada.id,
+          estado: tareaActualizada.estado,
+          fecha_confirmacion_pago: tareaActualizada.fecha_confirmacion_pago,
+          pago_recibido_tasker: tareaActualizada.pago_recibido_tasker
+        }
+      });
+    }
+
+    // Actualizar la tarea: marcar que el cliente confirmó el pago (pero NO cambiar estado todavía)
+    const fechaConfirmacion = new Date().toISOString();
     await tareaActualizada.update({
-      estado: 'FINALIZADA',
-      fecha_confirmacion_pago: new Date().toISOString(),
+      fecha_confirmacion_pago: fechaConfirmacion,
       auto_confirmado: false // Confirmado manualmente
     });
 
-    res.json({
-      message: 'Pago confirmado exitosamente. La tarea ha sido finalizada.',
-      tarea: {
-        id: tareaActualizada.id,
-        estado: tareaActualizada.estado,
-        fecha_confirmacion_pago: tareaActualizada.fecha_confirmacion_pago
-      }
-    });
+    // Recargar la tarea actualizada
+    const tareaRecargada = await Tarea.findByPk(tareaId);
+    
+    // Si el tasker ya confirmó que recibió el pago, entonces finalizar la tarea
+    if (tareaRecargada.pago_recibido_tasker) {
+      await tareaRecargada.update({
+        estado: 'FINALIZADA'
+      });
+      
+      res.json({
+        message: 'Pago confirmado exitosamente. Como el tasker ya confirmó la recepción, la tarea ha sido finalizada.',
+        tarea: {
+          id: tareaRecargada.id,
+          estado: 'FINALIZADA',
+          fecha_confirmacion_pago: fechaConfirmacion,
+          pago_recibido_tasker: true
+        }
+      });
+    } else {
+      res.json({
+        message: 'Pago confirmado exitosamente. Esperando confirmación del tasker para finalizar la tarea.',
+        tarea: {
+          id: tareaRecargada.id,
+          estado: tareaRecargada.estado, // Sigue en PENDIENTE_PAGO
+          fecha_confirmacion_pago: fechaConfirmacion,
+          pago_recibido_tasker: false
+        }
+      });
+    }
   } catch (error) {
     console.error('Error al confirmar pago:', error);
     res.status(500).json({
@@ -942,27 +977,66 @@ const confirmPaymentReceived = async (req, res) => {
       });
     }
 
-    // Verificar que la tarea está finalizada
-    if (tarea.estado !== 'FINALIZADA') {
+    // Verificar que la tarea está en estado PENDIENTE_PAGO o FINALIZADA
+    if (tarea.estado !== 'PENDIENTE_PAGO' && tarea.estado !== 'FINALIZADA') {
       return res.status(400).json({
         error: 'Estado inválido',
-        message: `Solo puedes confirmar recepción de pago de tareas finalizadas. Estado actual: ${tarea.estado}`
+        message: `Solo puedes confirmar recepción de pago de tareas en estado PENDIENTE_PAGO o FINALIZADA. Estado actual: ${tarea.estado}`
       });
     }
 
     // Verificar que no haya confirmado ya
     if (tarea.pago_recibido_tasker) {
-      return res.status(400).json({
-        error: 'Ya confirmado',
-        message: 'Ya has confirmado la recepción del pago para esta tarea'
+      return res.json({
+        message: 'Ya confirmaste la recepción del pago para esta tarea',
+        tarea: {
+          id: tarea.id,
+          estado: tarea.estado,
+          fecha_confirmacion_pago: tarea.fecha_confirmacion_pago,
+          pago_recibido_tasker: true,
+          fecha_confirmacion_recepcion_pago: tarea.fecha_confirmacion_recepcion_pago
+        }
       });
     }
 
     // Actualizar la tarea: marcar que el tasker recibió el pago
+    const fechaConfirmacionRecepcion = new Date().toISOString();
     await tarea.update({
       pago_recibido_tasker: true,
-      fecha_confirmacion_recepcion_pago: new Date().toISOString()
+      fecha_confirmacion_recepcion_pago: fechaConfirmacionRecepcion
     });
+
+    // Recargar la tarea actualizada
+    const tareaRecargada = await Tarea.findByPk(tareaId);
+    
+    // Si el cliente ya confirmó el pago, entonces finalizar la tarea
+    if (tareaRecargada.fecha_confirmacion_pago) {
+      await tareaRecargada.update({
+        estado: 'FINALIZADA'
+      });
+      
+      res.json({
+        message: 'Recepción de pago confirmada exitosamente. Como el cliente ya confirmó el pago, la tarea ha sido finalizada.',
+        tarea: {
+          id: tareaRecargada.id,
+          estado: 'FINALIZADA',
+          fecha_confirmacion_pago: tareaRecargada.fecha_confirmacion_pago,
+          pago_recibido_tasker: true,
+          fecha_confirmacion_recepcion_pago: fechaConfirmacionRecepcion
+        }
+      });
+    } else {
+      res.json({
+        message: 'Recepción de pago confirmada exitosamente. Esperando confirmación del cliente para finalizar la tarea.',
+        tarea: {
+          id: tareaRecargada.id,
+          estado: tareaRecargada.estado, // Sigue en PENDIENTE_PAGO
+          fecha_confirmacion_pago: null,
+          pago_recibido_tasker: true,
+          fecha_confirmacion_recepcion_pago: fechaConfirmacionRecepcion
+        }
+      });
+    }
 
     res.json({
       message: 'Recepción de pago confirmada exitosamente',

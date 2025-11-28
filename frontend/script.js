@@ -165,9 +165,13 @@ function showTabWithContent(tabName) {
     // Primero mostrar la pestaña normalmente
     showTab(tabName);
 
-    // Si es la pestaña de tasks y estamos logueados, cargar contenido dinámico
+    // Cargar contenido dinámico según la pestaña
     if (tabName === 'tasks' && currentUser) {
         showTasksContent();
+    } else if (tabName === 'profile' && currentUser) {
+        showProfileContent();
+    } else if (tabName === 'search' && currentUser) {
+        showSearchContent();
     }
 }
 
@@ -375,6 +379,11 @@ async function login(event) {
 
             // Cambiar a modo logueado
             switchToLoggedInMode();
+
+            // Actualizar botón de disponibilidad si es tasker
+            if (currentUser.tipo === 'tasker') {
+                updateAvailabilityButton();
+            }
 
             // Mostrar la pestaña correspondiente según el tipo de usuario
             if (currentUser.tipo === 'admin') {
@@ -849,6 +858,9 @@ function switchToLoggedInMode() {
     const tabBtns = document.querySelectorAll('.tab-btn');
     let logoutBtn = null;
     let tasksBtn = null;
+    let profileBtn = null;
+    let searchBtn = null;
+    let availabilityBtn = null;
     let adminBtn = null;
 
     tabBtns.forEach(btn => {
@@ -857,6 +869,15 @@ function switchToLoggedInMode() {
         }
         if (btn.onclick && btn.onclick.toString().includes('showTabWithContent(\'tasks\')')) {
             tasksBtn = btn;
+        }
+        if (btn.onclick && btn.onclick.toString().includes('showTabWithContent(\'profile\')')) {
+            profileBtn = btn;
+        }
+        if (btn.onclick && btn.onclick.toString().includes('showTabWithContent(\'search\')')) {
+            searchBtn = btn;
+        }
+        if (btn.id === 'availabilityBtn' || (btn.onclick && btn.onclick.toString().includes('toggleAvailability'))) {
+            availabilityBtn = btn;
         }
         if (btn.onclick && btn.onclick.toString().includes('admin')) {
             adminBtn = btn;
@@ -888,6 +909,88 @@ function switchToLoggedInMode() {
                 tasksBtn.classList.add('active');
             }
         }
+    }
+
+    // Mostrar pestañas de Perfil y Buscar para todos los usuarios (excepto admin)
+    if (currentUser.tipo !== 'admin') {
+        if (profileBtn) {
+            profileBtn.style.display = 'inline-block';
+        }
+        if (searchBtn) {
+            searchBtn.style.display = 'inline-block';
+        }
+    }
+
+    // Mostrar botón de disponibilidad solo para taskers
+    if (currentUser.tipo === 'tasker' && availabilityBtn) {
+        availabilityBtn.style.display = 'inline-block';
+        updateAvailabilityButton();
+    }
+}
+
+// Función para actualizar el texto y estilo del botón de disponibilidad
+function updateAvailabilityButton() {
+    const availabilityBtn = document.getElementById('availabilityBtn');
+    if (!availabilityBtn || !currentUser) return;
+
+    const disponible = currentUser.disponible !== false; // Por defecto true si no está definido
+    
+    if (disponible) {
+        availabilityBtn.textContent = '✅ Disponible';
+        availabilityBtn.classList.remove('unavailable');
+        availabilityBtn.classList.add('available');
+    } else {
+        availabilityBtn.textContent = '❌ No Disponible';
+        availabilityBtn.classList.remove('available');
+        availabilityBtn.classList.add('unavailable');
+    }
+}
+
+// Función para cambiar la disponibilidad del tasker
+async function toggleAvailability() {
+    try {
+        if (!currentToken || currentUser.tipo !== 'tasker') {
+            showMessage('❌ Solo los taskers pueden cambiar su disponibilidad', 'error');
+            return;
+        }
+
+        const nuevaDisponibilidad = !(currentUser.disponible !== false);
+        
+        const response = await fetch(`${API_BASE}/tasker/profile/${currentUser.id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            },
+            body: JSON.stringify({
+                disponible: nuevaDisponibilidad
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            // Actualizar currentUser
+            currentUser.disponible = nuevaDisponibilidad;
+            if (data.tasker) {
+                currentUser.disponible = data.tasker.disponible;
+            }
+            
+            // Actualizar el botón
+            updateAvailabilityButton();
+            
+            showMessage(
+                nuevaDisponibilidad 
+                    ? '✅ Ahora estás disponible para recibir tareas' 
+                    : '❌ Ya no estás disponible para recibir tareas',
+                'success'
+            );
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al actualizar disponibilidad'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error cambiando disponibilidad:', error);
+        showMessage('❌ Error de conexión al cambiar disponibilidad', 'error');
     }
 }
 
@@ -1315,18 +1418,30 @@ function logout() {
     currentUser = null;
     currentToken = null;
 
+    // Ocultar botón de disponibilidad directamente por ID
+    const availabilityBtn = document.getElementById('availabilityBtn');
+    if (availabilityBtn) {
+        availabilityBtn.style.display = 'none';
+    }
+
     // Restaurar pestañas originales
     document.querySelectorAll('.tab-btn').forEach(btn => {
-        if (btn.onclick.toString().includes('register')) {
-            btn.style.display = 'inline-block';
-            btn.classList.add('active');
-        } else if (btn.onclick.toString().includes('login')) {
+        if (btn.onclick && btn.onclick.toString().includes('register')) {
             btn.style.display = 'inline-block';
             btn.classList.remove('active');
-        } else if (btn.onclick.toString().includes('dashboard') ||
+        } else if (btn.onclick && btn.onclick.toString().includes('login')) {
+            btn.style.display = 'inline-block';
+            btn.classList.add('active');
+        } else if (btn.id === 'availabilityBtn') {
+            // Ya lo ocultamos arriba, pero por si acaso
+            btn.style.display = 'none';
+        } else if (btn.onclick && (btn.onclick.toString().includes('dashboard') ||
                    btn.onclick.toString().includes('tasks') ||
+                   btn.onclick.toString().includes('profile') ||
+                   btn.onclick.toString().includes('search') ||
+                   btn.onclick.toString().includes('toggleAvailability') ||
                    btn.onclick.toString().includes('admin') ||
-                   btn.onclick.toString().includes('logout')) {
+                   btn.onclick.toString().includes('logout'))) {
             btn.style.display = 'none';
             if (btn.onclick.toString().includes('tasks')) {
                 btn.textContent = 'Tareas';
@@ -1337,8 +1452,8 @@ function logout() {
     // Limpiar dashboard
     document.getElementById('dashboardContent').innerHTML = '';
 
-    // Volver a la pestaña de registro
-    showTab('register');
+    // Volver a la pestaña de login
+    showTab('login');
 
     showMessage('👋 Sesión cerrada exitosamente', 'info');
 }
@@ -1663,27 +1778,41 @@ async function loadClientAssignedTasks() {
 
         if (response.ok && assignedTasksList) {
             const todasLasTareas = data.tareas || [];
-            // Filtrar solo las asignadas/en proceso
-            const tareasAsignadas = todasLasTareas.filter(t => 
-                ['ASIGNADA', 'EN_PROCESO', 'PENDIENTE_PAGO'].includes(t.estado)
-            );
+            // Filtrar solo las asignadas/en proceso (excluir FINALIZADA y CANCELADA)
+            const tareasAsignadas = todasLasTareas.filter(t => {
+                const estado = (t.estado || '').toUpperCase().trim();
+                const estadosPermitidos = ['ASIGNADA', 'EN_PROCESO', 'PENDIENTE_PAGO'];
+                const permitida = estadosPermitidos.includes(estado);
+                // Debug: mostrar si alguna tarea finalizada pasa el filtro
+                if (estado === 'FINALIZADA' && permitida) {
+                    console.error('⚠️ ERROR: Tarea FINALIZADA pasó el filtro:', t);
+                }
+                return permitida;
+            });
 
             if (tareasAsignadas.length > 0) {
                 let tasksHTML = '';
 
                 tareasAsignadas.forEach(tarea => {
+                    // Validación adicional: no mostrar si está finalizada
+                    const estadoTarea = (tarea.estado || '').toUpperCase().trim();
+                    if (estadoTarea === 'FINALIZADA' || estadoTarea === 'CANCELADA') {
+                        console.warn('⚠️ Tarea finalizada/cancelada detectada en renderizado:', tarea);
+                        return; // Saltar esta tarea
+                    }
+
                     const fecha = new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES');
                     const estadoColor = {
                         'ASIGNADA': '#3b82f6',
                         'EN_PROCESO': '#8b5cf6',
                         'PENDIENTE_PAGO': '#f59e0b'
-                    }[tarea.estado] || '#6b7280';
+                    }[estadoTarea] || '#6b7280';
                     
                     const estadoTexto = {
                         'ASIGNADA': 'Tarea Asignada',
                         'EN_PROCESO': 'En Proceso',
                         'PENDIENTE_PAGO': 'Pendiente de Pago'
-                    }[tarea.estado] || tarea.estado;
+                    }[estadoTarea] || estadoTarea;
 
                     tasksHTML += `
                         <div class="task-item" onclick="openTaskModal(${JSON.stringify(tarea).replace(/"/g, '&quot;')})" style="cursor: pointer;">
@@ -1698,16 +1827,10 @@ async function loadClientAssignedTasks() {
                                 <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
                                 ${tarea.tasker_id ? '<p><strong>Tasker asignado:</strong> ID ' + tarea.tasker_id + '</p>' : ''}
                             </div>
-                            ${tarea.estado === 'PENDIENTE_PAGO' ? `
+                            ${estadoTarea === 'PENDIENTE_PAGO' ? `
                                 <div class="task-actions" onclick="event.stopPropagation();">
                                     <button class="confirm-payment-btn" onclick="event.stopPropagation(); confirmPayment(${tarea.id})">💳 Confirmar Pago</button>
                                 </div>
-                            ` : ''}
-                            ${tarea.estado === 'FINALIZADA' ? `
-                                <div class="task-actions" onclick="event.stopPropagation();">
-                                    <button class="rate-task-btn" onclick="showRatingForm(${tarea.id})">⭐ Calificar</button>
-                                </div>
-                                <div id="rating-form-${tarea.id}" class="rating-form-container" style="display: none;"></div>
                             ` : ''}
                         </div>
                     `;
@@ -1751,7 +1874,10 @@ async function loadClientHistoryTasks() {
             // Mostrar TODAS las tareas (excepto las pendientes de asignar que están en otra pestaña)
             // Ordenar por fecha de creación (más recientes primero)
             const tareasHistorial = todasLasTareas
-                .filter(t => t.estado !== 'PENDIENTE') // Excluir pendientes (están en otra pestaña)
+                .filter(t => {
+                    const estado = (t.estado || '').toUpperCase().trim();
+                    return estado !== 'PENDIENTE'; // Excluir pendientes (están en otra pestaña)
+                })
                 .sort((a, b) => {
                     const fechaA = new Date(a.createdAt || 0);
                     const fechaB = new Date(b.createdAt || 0);
@@ -1802,7 +1928,7 @@ async function loadClientHistoryTasks() {
                                 <div class="task-actions" onclick="event.stopPropagation();">
                                     <button class="rate-task-btn" onclick="showRatingForm(${tarea.id})">⭐ Calificar</button>
                                 </div>
-                                <div id="rating-form-${tarea.id}" class="rating-form-container" style="display: none;"></div>
+                                <div id="rating-form-${tarea.id}" class="rating-form-container" style="display: none;" onclick="event.stopPropagation()"></div>
                             ` : ''}
                         </div>
                     `;
@@ -1892,24 +2018,33 @@ async function loadTaskerAssignedTasks() {
         const taskerAssignedTasksList = document.getElementById('taskerAssignedTasksList');
 
         if (response.ok && taskerAssignedTasksList) {
-            const tareas = data.tareas || [];
+            const todasLasTareas = data.tareas || [];
+            // Filtrar solo las asignadas/en proceso (excluir FINALIZADA, CANCELADA y PENDIENTE_PAGO)
+            const tareasAsignadas = todasLasTareas.filter(t => {
+                const estado = (t.estado || '').toUpperCase().trim();
+                return ['ASIGNADA', 'EN_PROCESO'].includes(estado);
+            });
 
-            if (tareas.length > 0) {
+            if (tareasAsignadas.length > 0) {
                 let tasksHTML = '';
 
-                tareas.forEach(tarea => {
+                tareasAsignadas.forEach(tarea => {
+                    // Validación adicional: no mostrar si está finalizada o cancelada
+                    const estadoTarea = (tarea.estado || '').toUpperCase().trim();
+                    if (estadoTarea === 'FINALIZADA' || estadoTarea === 'CANCELADA' || estadoTarea === 'PENDIENTE_PAGO') {
+                        return; // Saltar esta tarea
+                    }
+
                     const fecha = new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES');
                     const estadoColor = {
                         'ASIGNADA': '#3b82f6',
-                        'EN_PROCESO': '#8b5cf6',
-                        'PENDIENTE_PAGO': '#f59e0b'
-                    }[tarea.estado] || '#6b7280';
+                        'EN_PROCESO': '#8b5cf6'
+                    }[estadoTarea] || '#6b7280';
                     
                     const estadoTexto = {
                         'ASIGNADA': 'Tarea Asignada',
-                        'EN_PROCESO': 'En Proceso',
-                        'PENDIENTE_PAGO': 'Pendiente de Pago'
-                    }[tarea.estado] || tarea.estado;
+                        'EN_PROCESO': 'En Proceso'
+                    }[estadoTarea] || estadoTarea;
 
                     const nombreCliente = tarea.cliente && tarea.cliente.nombre ? 
                         `${tarea.cliente.nombre} ${tarea.cliente.apellido || ''}` : 'Cliente';
@@ -1927,12 +2062,12 @@ async function loadTaskerAssignedTasks() {
                                 <p><strong>Fecha:</strong> ${fecha}</p>
                                 <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
                             </div>
-                            ${tarea.estado === 'ASIGNADA' ? `
+                            ${estadoTarea === 'ASIGNADA' ? `
                                 <div class="task-actions" onclick="event.stopPropagation();">
                                     <button class="start-task-btn" onclick="startTask(${tarea.id})">▶️ Empezar Tarea</button>
                                 </div>
                             ` : ''}
-                            ${tarea.estado === 'EN_PROCESO' ? `
+                            ${estadoTarea === 'EN_PROCESO' ? `
                                 <div class="task-actions" onclick="event.stopPropagation();">
                                     <button class="complete-task-btn" onclick="event.stopPropagation(); completeTask(${tarea.id})">✅ Finalizar Tarea</button>
                                 </div>
@@ -2040,7 +2175,7 @@ async function completeTask(taskId) {
 
 // Función para que cliente confirme el pago
 async function confirmPayment(taskId) {
-    if (!confirm('¿Estás conforme con el trabajo realizado? Al confirmar, el pago se liberará y la tarea se finalizará.')) {
+    if (!confirm('¿Estás conforme con el trabajo realizado? Al confirmar, esperarás la confirmación del tasker para finalizar la tarea.')) {
         return;
     }
 
@@ -2061,7 +2196,12 @@ async function confirmPayment(taskId) {
         const data = await response.json();
 
         if (response.ok) {
-            showMessage('✅ ¡Pago confirmado! La tarea ha sido finalizada. Ahora puedes calificar al tasker.', 'success');
+            // Verificar si la tarea fue finalizada (ambas partes confirmaron)
+            if (data.tarea && data.tarea.estado === 'FINALIZADA') {
+                showMessage('✅ ¡Pago confirmado! Como el tasker ya confirmó la recepción, la tarea ha sido finalizada. Ahora puedes calificar al tasker.', 'success');
+            } else {
+                showMessage('✅ ¡Pago confirmado! Esperando confirmación del tasker para finalizar la tarea.', 'success');
+            }
             
             // Recargar las tareas
             setTimeout(() => {
@@ -2100,7 +2240,12 @@ async function confirmPaymentReceived(taskId) {
         const data = await response.json();
 
         if (response.ok) {
-            showMessage('✅ ¡Recepción de pago confirmada!', 'success');
+            // Verificar si la tarea fue finalizada (ambas partes confirmaron)
+            if (data.tarea && data.tarea.estado === 'FINALIZADA') {
+                showMessage('✅ ¡Recepción de pago confirmada! Como el cliente ya confirmó el pago, la tarea ha sido finalizada.', 'success');
+            } else {
+                showMessage('✅ ¡Recepción de pago confirmada! Esperando confirmación del cliente para finalizar la tarea.', 'success');
+            }
             
             // Recargar las tareas
             setTimeout(() => {
@@ -2151,8 +2296,16 @@ async function loadTaskerPendingPaymentTasks() {
 
         if (response.ok && taskerPendingPaymentList) {
             const todasLasTareas = data.tareas || [];
-            // Filtrar solo las pendientes de pago
-            const tareasPendientes = todasLasTareas.filter(t => t.estado === 'PENDIENTE_PAGO');
+            // Filtrar las pendientes de pago: incluir PENDIENTE_PAGO y FINALIZADA sin ambas confirmaciones
+            const tareasPendientes = todasLasTareas.filter(t => {
+                const estado = (t.estado || '').toUpperCase().trim();
+                const clienteConfirmo = !!t.fecha_confirmacion_pago;
+                const taskerConfirmo = !!t.pago_recibido_tasker;
+                const ambasConfirmaron = clienteConfirmo && taskerConfirmo;
+                
+                // Incluir si está en PENDIENTE_PAGO o si está FINALIZADA pero falta alguna confirmación
+                return estado === 'PENDIENTE_PAGO' || (estado === 'FINALIZADA' && !ambasConfirmaron);
+            });
 
             if (tareasPendientes.length > 0) {
                 let tasksHTML = '';
@@ -2165,15 +2318,34 @@ async function loadTaskerPendingPaymentTasks() {
                     const nombreCliente = tarea.cliente && tarea.cliente.nombre ? 
                         `${tarea.cliente.nombre} ${tarea.cliente.apellido || ''}` : 'Cliente';
 
+                    // Verificar quién ha confirmado
+                    const clienteConfirmo = !!tarea.fecha_confirmacion_pago;
+                    const taskerConfirmo = !!tarea.pago_recibido_tasker;
+                    const ambasConfirmaron = clienteConfirmo && taskerConfirmo;
+
                     // Calcular tiempo transcurrido desde la finalización
                     let tiempoEspera = '';
                     if (tarea.fecha_finalizacion_trabajo) {
                         const ahora = new Date();
                         const fechaFin = new Date(tarea.fecha_finalizacion_trabajo);
                         const horasTranscurridas = Math.round((ahora - fechaFin) / (60 * 60 * 1000));
-                        tiempoEspera = horasTranscurridas < 48 ? 
-                            `<p><strong>⏰ Tiempo de espera:</strong> ${horasTranscurridas} horas (auto-confirmación en ${48 - horasTranscurridas} horas)</p>` :
-                            '<p><strong>⏰ Estado:</strong> Lista para auto-confirmación</p>';
+                        if (horasTranscurridas < 48) {
+                            tiempoEspera = `<p><strong>⏰ Tiempo de espera:</strong> ${horasTranscurridas} horas (auto-confirmación en ${48 - horasTranscurridas} horas)</p>`;
+                        } else if (!clienteConfirmo) {
+                            tiempoEspera = '<p><strong>⏰ Estado:</strong> Lista para auto-confirmación del cliente</p>';
+                        }
+                    }
+
+                    // Indicadores de confirmación
+                    let indicadoresConfirmacion = '';
+                    if (clienteConfirmo && taskerConfirmo) {
+                        indicadoresConfirmacion = '<p style="color: #10b981; font-weight: bold;">✅ Ambas partes confirmaron - La tarea será finalizada</p>';
+                    } else if (clienteConfirmo) {
+                        indicadoresConfirmacion = '<p style="color: #3b82f6;">✅ Cliente confirmó el pago - Esperando tu confirmación</p>';
+                    } else if (taskerConfirmo) {
+                        indicadoresConfirmacion = '<p style="color: #8b5cf6;">✅ Tú confirmaste la recepción - Esperando confirmación del cliente</p>';
+                    } else {
+                        indicadoresConfirmacion = '<p style="color: #f59e0b;">⏳ Esperando confirmación de ambas partes</p>';
                     }
 
                     const tareaJson = JSON.stringify(tarea).replace(/"/g, '&quot;');
@@ -2191,9 +2363,17 @@ async function loadTaskerPendingPaymentTasks() {
                                 <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
                                 <p><strong>Finalizada el:</strong> ${fechaFinalizacion}</p>
                                 ${tiempoEspera}
+                                ${indicadoresConfirmacion}
                             </div>
                             <div class="task-actions" onclick="event.stopPropagation();">
-                                <p class="payment-info">💳 Esperando confirmación del cliente. El pago se liberará automáticamente después de 48 horas si el cliente no responde.</p>
+                                ${!taskerConfirmo ? `
+                                    <button class="confirm-payment-received-btn" onclick="event.stopPropagation(); confirmPaymentReceived(${tarea.id})">✅ Confirmar Recepción de Pago</button>
+                                ` : `
+                                    <p class="payment-info" style="color: #10b981;">✅ Ya confirmaste la recepción del pago</p>
+                                `}
+                                ${!clienteConfirmo && !tarea.auto_confirmado ? `
+                                    <p class="payment-info">💳 Esperando confirmación del cliente. El pago se liberará automáticamente después de 48 horas si el cliente no responde.</p>
+                                ` : ''}
                             </div>
                         </div>
                     `;
@@ -2257,13 +2437,25 @@ async function loadTaskerHistoryTasks() {
                     const nombreCliente = tarea.cliente && tarea.cliente.nombre ? 
                         `${tarea.cliente.nombre} ${tarea.cliente.apellido || ''}` : 'Cliente';
 
+                    // Verificar confirmaciones reales
+                    const clienteConfirmo = !!tarea.fecha_confirmacion_pago;
+                    const taskerConfirmo = !!tarea.pago_recibido_tasker;
+                    const ambasConfirmaron = clienteConfirmo && taskerConfirmo;
+                    
+                    // Si la tarea está marcada como FINALIZADA pero falta alguna confirmación,
+                    // tratarla como PENDIENTE_PAGO para mostrar el botón de confirmación
+                    let estadoReal = tarea.estado;
+                    if (tarea.estado === 'FINALIZADA' && !ambasConfirmaron) {
+                        estadoReal = 'PENDIENTE_PAGO';
+                    }
+
                     const estadoColor = {
                         'ASIGNADA': '#3b82f6',
                         'EN_PROCESO': '#8b5cf6',
                         'PENDIENTE_PAGO': '#f59e0b',
                         'FINALIZADA': '#10b981',
                         'CANCELADA': '#ef4444'
-                    }[tarea.estado] || '#6b7280';
+                    }[estadoReal] || '#6b7280';
                     
                     const estadoTexto = {
                         'ASIGNADA': 'Tarea Asignada',
@@ -2271,7 +2463,7 @@ async function loadTaskerHistoryTasks() {
                         'PENDIENTE_PAGO': 'Pendiente de Pago',
                         'FINALIZADA': 'Finalizada',
                         'CANCELADA': 'Cancelada'
-                    }[tarea.estado] || tarea.estado;
+                    }[estadoReal] || estadoReal;
 
                     const tareaJson = JSON.stringify(tarea).replace(/"/g, '&quot;');
                     tasksHTML += `
@@ -2286,20 +2478,22 @@ async function loadTaskerHistoryTasks() {
                                 <p><strong>Dirección:</strong> ${tarea.ubicacion ? tarea.ubicacion.direccion : 'No especificada'}</p>
                                 <p><strong>Fecha:</strong> ${fecha}</p>
                                 <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
-                                ${tarea.estado === 'FINALIZADA' ? `<p><strong>Finalizada el:</strong> ${fechaFinalizacion}</p>` : ''}
+                                ${ambasConfirmaron ? `<p><strong>Finalizada el:</strong> ${fechaFinalizacion}</p>` : ''}
                                 ${tarea.auto_confirmado ? '<p><strong>ℹ️ Auto-confirmada</strong> (pasaron más de 48 horas)</p>' : ''}
-                                ${tarea.pago_recibido_tasker ? '<p><strong>✅ Pago recibido y confirmado</strong></p>' : ''}
+                                ${taskerConfirmo ? '<p><strong>✅ Pago recibido y confirmado</strong></p>' : ''}
+                                ${clienteConfirmo && !taskerConfirmo ? '<p style="color: #3b82f6;"><strong>✅ Cliente confirmó el pago</strong> - Esperando tu confirmación</p>' : ''}
+                                ${!clienteConfirmo && taskerConfirmo ? '<p style="color: #8b5cf6;"><strong>✅ Tú confirmaste la recepción</strong> - Esperando confirmación del cliente</p>' : ''}
                             </div>
-                            ${tarea.estado === 'FINALIZADA' && !tarea.pago_recibido_tasker ? `
+                            ${!taskerConfirmo && (estadoReal === 'PENDIENTE_PAGO' || tarea.estado === 'FINALIZADA') ? `
                                 <div class="task-actions" onclick="event.stopPropagation();">
                                     <button class="confirm-payment-received-btn" onclick="event.stopPropagation(); confirmPaymentReceived(${tarea.id})">✅ Confirmar Recepción de Pago</button>
                                 </div>
                             ` : ''}
-                            ${tarea.estado === 'FINALIZADA' ? `
+                            ${ambasConfirmaron ? `
                                 <div class="task-actions" onclick="event.stopPropagation();">
                                     <button class="rate-task-btn" onclick="showRatingForm(${tarea.id})">⭐ Calificar</button>
                                 </div>
-                                <div id="rating-form-${tarea.id}" class="rating-form-container" style="display: none;"></div>
+                                <div id="rating-form-${tarea.id}" class="rating-form-container" style="display: none;" onclick="event.stopPropagation()"></div>
                             ` : ''}
                         </div>
                     `;
@@ -3347,6 +3541,937 @@ window.debugWizardStatus = function() {
         seleccionadas: document.querySelectorAll('.service-card.selected').length
     };
 };
+
+// ========== FUNCIONES DE PERFIL ==========
+
+// Función para mostrar el contenido del perfil
+function showProfileContent() {
+    const profileContent = document.getElementById('profileContent');
+    if (!profileContent) return;
+
+    const userType = currentUser.tipo;
+    let profileHTML = '';
+
+    if (userType === 'cliente') {
+        profileHTML = `
+            <div class="profile-container">
+                <h2>👤 Mi Perfil</h2>
+                <form id="profileForm" class="profile-form">
+                    <div class="form-group">
+                        <label>Nombre *</label>
+                        <input type="text" id="profileNombre" value="${currentUser.nombre || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Apellido *</label>
+                        <input type="text" id="profileApellido" value="${currentUser.apellido || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Teléfono *</label>
+                        <input type="tel" id="profileTelefono" value="${currentUser.telefono || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="profileEmail" value="${currentUser.email || ''}" disabled>
+                        <small>El email no se puede modificar</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Ubicación por defecto</label>
+                        <input type="text" id="profileUbicacion" value="${currentUser.ubicacion_default || ''}" placeholder="Ej: Av. Corrientes 1234, CABA">
+                    </div>
+                    <button type="submit" class="btn-primary">💾 Guardar Cambios</button>
+                </form>
+                <div class="my-ratings-section">
+                    <h3>⭐ Mis Calificaciones</h3>
+                    <div id="myRatingsContainer"></div>
+                </div>
+            </div>
+        `;
+    } else if (userType === 'tasker') {
+        // Obtener datos completos del tasker
+        loadTaskerProfileForEdit();
+        profileHTML = `
+            <div class="profile-container">
+                <h2>👤 Mi Perfil</h2>
+                <form id="profileForm" class="profile-form">
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label>Nombre *</label>
+                            <input type="text" id="profileNombre" value="${currentUser.nombre || ''}" required>
+                        </div>
+                        <div class="form-group half">
+                            <label>Apellido *</label>
+                            <input type="text" id="profileApellido" value="${currentUser.apellido || ''}" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Teléfono *</label>
+                        <input type="tel" id="profileTelefono" value="${currentUser.telefono || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="profileEmail" value="${currentUser.email || ''}" disabled>
+                        <small>El email no se puede modificar</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Categoría Principal *</label>
+                        <select id="profileCategoria" required>
+                            <option value="">Selecciona una categoría</option>
+                            <option value="EXPRESS">⚡ Express</option>
+                            <option value="OFICIOS">🔧 Oficios</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="especialidadesGroup" style="display: none;">
+                        <label>Especialidades (si aplica)</label>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" value="Plomería"> 🔧 Plomería</label>
+                            <label><input type="checkbox" value="Albañilería"> 🧱 Albañilería</label>
+                            <label><input type="checkbox" value="Electricista"> ⚡ Electricista</label>
+                            <label><input type="checkbox" value="Gasista"> 🔥 Gasista</label>
+                            <label><input type="checkbox" value="Carpintería"> 🔨 Carpintería</label>
+                            <label><input type="checkbox" value="Pintura"> 🎨 Pintura</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Skills / Habilidades (separadas por comas)</label>
+                        <input type="text" id="profileSkills" placeholder="Ej: Reparación de grifos, Instalación eléctrica">
+                        <small>Lista tus habilidades principales</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Licencias (separadas por comas)</label>
+                        <input type="text" id="profileLicencias" placeholder="Ej: Licencia de conducir, Matrícula de gasista">
+                        <small>Lista tus licencias y certificaciones</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Descripción Profesional</label>
+                        <textarea id="profileDescripcion" rows="4" placeholder="Cuéntanos sobre tu experiencia y especialidades..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>CVU/CBU (para recibir pagos)</label>
+                        <input type="text" id="profileCVUCBU" placeholder="0000003100000000000001">
+                        <small>Tu CVU o CBU para recibir pagos</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Disponibilidad</label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="profileDisponible" checked>
+                            Estoy disponible para trabajar
+                        </label>
+                    </div>
+                    <button type="submit" class="btn-primary">💾 Guardar Cambios</button>
+                </form>
+                <div class="my-ratings-section">
+                    <h3>⭐ Mis Calificaciones</h3>
+                    <div id="myRatingsContainer"></div>
+                </div>
+            </div>
+        `;
+    }
+
+    profileContent.innerHTML = profileHTML;
+
+    // Cargar datos completos después de renderizar
+    setTimeout(() => {
+        if (userType === 'tasker') {
+            loadTaskerProfileForEdit();
+        } else if (userType === 'cliente') {
+            loadClienteProfileForEdit();
+        }
+        
+        // Cargar calificaciones del usuario
+        loadUserRatings(currentUser.id, userType, 'myRatingsContainer');
+    }, 100);
+
+    // Agregar event listeners
+    const form = document.getElementById('profileForm');
+    if (form) {
+        form.addEventListener('submit', handleProfileUpdate);
+    }
+
+    // Mostrar/ocultar especialidades según categoría
+    const categoriaSelect = document.getElementById('profileCategoria');
+    if (categoriaSelect) {
+        categoriaSelect.addEventListener('change', function() {
+            const especialidadesGroup = document.getElementById('especialidadesGroup');
+            if (especialidadesGroup) {
+                especialidadesGroup.style.display = this.value === 'OFICIOS' ? 'block' : 'none';
+            }
+        });
+    }
+}
+
+// Función para cargar perfil completo del cliente para editar
+async function loadClienteProfileForEdit() {
+    try {
+        const response = await fetch(`${API_BASE}/cliente/profile/${currentUser.id}`, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const cliente = data.cliente;
+
+            // Actualizar currentUser con los datos más recientes
+            Object.assign(currentUser, {
+                nombre: cliente.nombre,
+                apellido: cliente.apellido,
+                telefono: cliente.telefono,
+                ubicacion_default: cliente.ubicacion_default
+            });
+
+            // Llenar campos del formulario
+            if (document.getElementById('profileNombre')) {
+                document.getElementById('profileNombre').value = cliente.nombre || '';
+            }
+            if (document.getElementById('profileApellido')) {
+                document.getElementById('profileApellido').value = cliente.apellido || '';
+            }
+            if (document.getElementById('profileTelefono')) {
+                document.getElementById('profileTelefono').value = cliente.telefono || '';
+            }
+            if (document.getElementById('profileUbicacion')) {
+                document.getElementById('profileUbicacion').value = cliente.ubicacion_default || '';
+            }
+        }
+    } catch (error) {
+        console.error('Error cargando perfil del cliente:', error);
+    }
+}
+
+// Función para cargar perfil completo del tasker para editar
+async function loadTaskerProfileForEdit() {
+    try {
+        const response = await fetch(`${API_BASE}/tasker/profile/${currentUser.id}`, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const tasker = data.tasker;
+
+            // Actualizar currentUser con los datos más recientes
+            Object.assign(currentUser, {
+                nombre: tasker.nombre,
+                apellido: tasker.apellido,
+                telefono: tasker.telefono,
+                disponible: tasker.disponible
+            });
+
+            // Actualizar botón de disponibilidad
+            updateAvailabilityButton();
+
+            // Llenar campos básicos del formulario
+            if (document.getElementById('profileNombre')) {
+                document.getElementById('profileNombre').value = tasker.nombre || '';
+            }
+            if (document.getElementById('profileApellido')) {
+                document.getElementById('profileApellido').value = tasker.apellido || '';
+            }
+            if (document.getElementById('profileTelefono')) {
+                document.getElementById('profileTelefono').value = tasker.telefono || '';
+            }
+
+            // Llenar campos específicos del tasker
+            if (document.getElementById('profileCategoria')) {
+                document.getElementById('profileCategoria').value = tasker.categoria_principal || '';
+                // Trigger change para mostrar especialidades si aplica
+                document.getElementById('profileCategoria').dispatchEvent(new Event('change'));
+            }
+            if (document.getElementById('profileSkills')) {
+                document.getElementById('profileSkills').value = (tasker.skills || []).join(', ');
+            }
+            if (document.getElementById('profileLicencias')) {
+                document.getElementById('profileLicencias').value = (tasker.licencias || []).join(', ');
+            }
+            if (document.getElementById('profileDescripcion')) {
+                document.getElementById('profileDescripcion').value = tasker.descripcion_profesional || '';
+            }
+            if (document.getElementById('profileCVUCBU')) {
+                document.getElementById('profileCVUCBU').value = tasker.cvu_cbu || '';
+            }
+            if (document.getElementById('profileDisponible')) {
+                document.getElementById('profileDisponible').checked = tasker.disponible !== false;
+            }
+
+            // Marcar especialidades seleccionadas
+            if (tasker.especialidades && tasker.especialidades.length > 0) {
+                tasker.especialidades.forEach(esp => {
+                    const checkbox = document.querySelector(`input[value="${esp}"]`);
+                    if (checkbox) checkbox.checked = true;
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Error cargando perfil del tasker:', error);
+    }
+}
+
+// Función para manejar actualización de perfil
+async function handleProfileUpdate(e) {
+    e.preventDefault();
+
+    try {
+        const userType = currentUser.tipo;
+        let updateData = {};
+
+        if (userType === 'cliente') {
+            updateData = {
+                nombre: document.getElementById('profileNombre').value,
+                apellido: document.getElementById('profileApellido').value,
+                telefono: document.getElementById('profileTelefono').value,
+                ubicacion_default: document.getElementById('profileUbicacion').value || null
+            };
+        } else if (userType === 'tasker') {
+            // Obtener especialidades seleccionadas
+            const especialidades = Array.from(document.querySelectorAll('#especialidadesGroup input[type="checkbox"]:checked'))
+                .map(cb => cb.value);
+
+            // Obtener skills y licencias (separar por comas)
+            const skillsText = document.getElementById('profileSkills').value;
+            const licenciasText = document.getElementById('profileLicencias').value;
+
+            updateData = {
+                nombre: document.getElementById('profileNombre').value,
+                apellido: document.getElementById('profileApellido').value,
+                telefono: document.getElementById('profileTelefono').value,
+                categoria_principal: document.getElementById('profileCategoria').value || null,
+                especialidades: especialidades,
+                skills: skillsText ? skillsText.split(',').map(s => s.trim()).filter(s => s) : [],
+                licencias: licenciasText ? licenciasText.split(',').map(l => l.trim()).filter(l => l) : [],
+                descripcion_profesional: document.getElementById('profileDescripcion').value || null,
+                cvu_cbu: document.getElementById('profileCVUCBU').value || null,
+                disponible: document.getElementById('profileDisponible').checked
+            };
+        }
+
+        const endpoint = userType === 'cliente' 
+            ? `${API_BASE}/cliente/profile/${currentUser.id}`
+            : `${API_BASE}/tasker/profile/${currentUser.id}`;
+
+        const response = await fetch(endpoint, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            },
+            body: JSON.stringify(updateData)
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage('✅ Perfil actualizado exitosamente', 'success');
+            // Actualizar currentUser con los nuevos datos
+            if (userType === 'cliente') {
+                Object.assign(currentUser, data.cliente);
+            } else {
+                Object.assign(currentUser, data.tasker);
+                // Actualizar botón de disponibilidad si es tasker
+                updateAvailabilityButton();
+            }
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al actualizar perfil'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error actualizando perfil:', error);
+        showMessage('❌ Error de conexión al actualizar perfil', 'error');
+    }
+}
+
+// ========== FUNCIONES DE BÚSQUEDA ==========
+
+// Función para mostrar el contenido de búsqueda
+function showSearchContent() {
+    const searchContent = document.getElementById('searchContent');
+    if (!searchContent) return;
+
+    const userType = currentUser.tipo;
+    let searchHTML = '';
+
+    if (userType === 'cliente') {
+        // Cliente busca taskers
+        searchHTML = `
+            <div class="search-container">
+                <h2>🔍 Buscar Taskers</h2>
+                <div class="search-filters">
+                    <input type="text" id="searchTaskerNombre" placeholder="Buscar por nombre..." class="search-input">
+                    <select id="searchTaskerCategoria" class="search-select">
+                        <option value="">Todas las categorías</option>
+                        <option value="EXPRESS">⚡ Express</option>
+                        <option value="OFICIOS">🔧 Oficios</option>
+                    </select>
+                    <select id="searchTaskerEspecialidad" class="search-select">
+                        <option value="">Todas las especialidades</option>
+                        <option value="Plomería">🔧 Plomería</option>
+                        <option value="Albañilería">🧱 Albañilería</option>
+                        <option value="Electricista">⚡ Electricista</option>
+                        <option value="Gasista">🔥 Gasista</option>
+                        <option value="Carpintería">🔨 Carpintería</option>
+                        <option value="Pintura">🎨 Pintura</option>
+                    </select>
+                    <input type="text" id="searchTaskerSkill" placeholder="Buscar por skill..." class="search-input">
+                    <button onclick="searchTaskers()" class="btn-primary">🔍 Buscar</button>
+                </div>
+                <div id="taskersResults" class="results-container">
+                    <p class="no-results">Usa los filtros para buscar taskers</p>
+                </div>
+            </div>
+        `;
+    } else if (userType === 'tasker') {
+        // Tasker busca clientes
+        searchHTML = `
+            <div class="search-container">
+                <h2>🔍 Buscar Clientes</h2>
+                <div class="search-filters">
+                    <input type="text" id="searchClienteNombre" placeholder="Buscar por nombre..." class="search-input">
+                    <button onclick="searchClientes()" class="btn-primary">🔍 Buscar</button>
+                </div>
+                <div id="clientesResults" class="results-container">
+                    <p class="no-results">Usa los filtros para buscar clientes</p>
+                </div>
+            </div>
+        `;
+    }
+
+    searchContent.innerHTML = searchHTML;
+}
+
+// Función para buscar taskers
+async function searchTaskers() {
+    try {
+        const nombre = document.getElementById('searchTaskerNombre')?.value || '';
+        const categoria = document.getElementById('searchTaskerCategoria')?.value || '';
+        const especialidad = document.getElementById('searchTaskerEspecialidad')?.value || '';
+        const skill = document.getElementById('searchTaskerSkill')?.value || '';
+
+        const params = new URLSearchParams();
+        if (nombre) params.append('nombre', nombre);
+        if (categoria) params.append('categoria_principal', categoria);
+        if (especialidad) params.append('especialidad', especialidad);
+        if (skill) params.append('skill', skill);
+
+        const response = await fetch(`${API_BASE}/tasker/search?${params.toString()}`, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        const resultsDiv = document.getElementById('taskersResults');
+
+        if (response.ok && resultsDiv) {
+            if (data.taskers && data.taskers.length > 0) {
+                let resultsHTML = `<h3>Resultados (${data.total})</h3>`;
+                data.taskers.forEach(tasker => {
+                    resultsHTML += `
+                        <div class="profile-card" onclick="viewTaskerProfile(${tasker.id})">
+                            <div class="profile-header">
+                                <h3>${tasker.nombre} ${tasker.apellido}</h3>
+                                <span class="status-badge ${tasker.disponible ? 'available' : 'unavailable'}">
+                                    ${tasker.disponible ? '✅ Disponible' : '❌ No disponible'}
+                                </span>
+                            </div>
+                            <div class="profile-details">
+                                <p><strong>📞 Teléfono:</strong> ${tasker.telefono || 'No especificado'}</p>
+                                ${tasker.categoria_principal ? `<p><strong>Categoría:</strong> ${tasker.categoria_principal}</p>` : ''}
+                                ${tasker.especialidades && tasker.especialidades.length > 0 ? 
+                                    `<p><strong>Especialidades:</strong> ${tasker.especialidades.join(', ')}</p>` : ''}
+                                ${tasker.skills && tasker.skills.length > 0 ? 
+                                    `<p><strong>Skills:</strong> ${tasker.skills.join(', ')}</p>` : ''}
+                                ${tasker.descripcion_profesional ? 
+                                    `<p><strong>Descripción:</strong> ${tasker.descripcion_profesional}</p>` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                resultsDiv.innerHTML = resultsHTML;
+            } else {
+                resultsDiv.innerHTML = '<p class="no-results">No se encontraron taskers con esos criterios</p>';
+            }
+        }
+    } catch (error) {
+        console.error('Error buscando taskers:', error);
+        showMessage('❌ Error de conexión al buscar taskers', 'error');
+    }
+}
+
+// Función para buscar clientes
+async function searchClientes() {
+    try {
+        const nombre = document.getElementById('searchClienteNombre')?.value || '';
+
+        const params = new URLSearchParams();
+        if (nombre) params.append('nombre', nombre);
+
+        const response = await fetch(`${API_BASE}/cliente/search?${params.toString()}`, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        const resultsDiv = document.getElementById('clientesResults');
+
+        if (response.ok && resultsDiv) {
+            if (data.clientes && data.clientes.length > 0) {
+                let resultsHTML = `<h3>Resultados (${data.total})</h3>`;
+                data.clientes.forEach(cliente => {
+                    resultsHTML += `
+                        <div class="profile-card" onclick="viewClienteProfile(${cliente.id})">
+                            <div class="profile-header">
+                                <h3>${cliente.nombre} ${cliente.apellido}</h3>
+                            </div>
+                            <div class="profile-details">
+                                <p><strong>📞 Teléfono:</strong> ${cliente.telefono || 'No especificado'}</p>
+                                ${cliente.ubicacion_default ? 
+                                    `<p><strong>📍 Ubicación:</strong> ${cliente.ubicacion_default}</p>` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                resultsDiv.innerHTML = resultsHTML;
+            } else {
+                resultsDiv.innerHTML = '<p class="no-results">No se encontraron clientes con esos criterios</p>';
+            }
+        }
+    } catch (error) {
+        console.error('Error buscando clientes:', error);
+        showMessage('❌ Error de conexión al buscar clientes', 'error');
+    }
+}
+
+// Función para ver perfil completo de un tasker
+async function viewTaskerProfile(taskerId) {
+    try {
+        const response = await fetch(`${API_BASE}/tasker/profile/${taskerId}`, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        if (response.ok && data.tasker) {
+            const tasker = data.tasker;
+            const modalHTML = `
+                <div class="modal-overlay" onclick="closeProfileModal()">
+                    <div class="modal-content profile-modal" onclick="event.stopPropagation()">
+                        <button class="modal-close" onclick="closeProfileModal()">×</button>
+                        <h2>👤 ${tasker.nombre} ${tasker.apellido}</h2>
+                        <div class="profile-full-details">
+                            <p><strong>📞 Teléfono:</strong> ${tasker.telefono || 'No especificado'}</p>
+                            ${tasker.categoria_principal ? `<p><strong>Categoría:</strong> ${tasker.categoria_principal}</p>` : ''}
+                            ${tasker.especialidades && tasker.especialidades.length > 0 ? 
+                                `<p><strong>Especialidades:</strong> ${tasker.especialidades.join(', ')}</p>` : ''}
+                            ${tasker.skills && tasker.skills.length > 0 ? 
+                                `<p><strong>Skills:</strong> ${tasker.skills.join(', ')}</p>` : ''}
+                            ${tasker.licencias && tasker.licencias.length > 0 ? 
+                                `<p><strong>Licencias:</strong> ${tasker.licencias.join(', ')}</p>` : ''}
+                            ${tasker.descripcion_profesional ? 
+                                `<p><strong>Descripción:</strong> ${tasker.descripcion_profesional}</p>` : ''}
+                            <p><strong>Estado:</strong> ${tasker.disponible ? '✅ Disponible' : '❌ No disponible'}</p>
+                        </div>
+                        <div id="taskerRatings-${taskerId}" class="ratings-section">
+                            <p>Cargando calificaciones...</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            
+            // Cargar calificaciones del tasker
+            loadUserRatings(taskerId, 'tasker', `taskerRatings-${taskerId}`);
+        }
+    } catch (error) {
+        console.error('Error cargando perfil de tasker:', error);
+        showMessage('❌ Error al cargar perfil', 'error');
+    }
+}
+
+// Función para ver perfil completo de un cliente
+async function viewClienteProfile(clienteId) {
+    try {
+        const response = await fetch(`${API_BASE}/cliente/profile/${clienteId}`, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        if (response.ok && data.cliente) {
+            const cliente = data.cliente;
+            const modalHTML = `
+                <div class="modal-overlay" onclick="closeProfileModal()">
+                    <div class="modal-content profile-modal" onclick="event.stopPropagation()">
+                        <button class="modal-close" onclick="closeProfileModal()">×</button>
+                        <h2>👤 ${cliente.nombre} ${cliente.apellido}</h2>
+                        <div class="profile-full-details">
+                            <p><strong>📞 Teléfono:</strong> ${cliente.telefono || 'No especificado'}</p>
+                            ${cliente.ubicacion_default ? 
+                                `<p><strong>📍 Ubicación:</strong> ${cliente.ubicacion_default}</p>` : ''}
+                        </div>
+                        <div id="clienteRatings-${clienteId}" class="ratings-section">
+                            <p>Cargando calificaciones...</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            
+            // Cargar calificaciones del cliente
+            loadUserRatings(clienteId, 'cliente', `clienteRatings-${clienteId}`);
+        }
+    } catch (error) {
+        console.error('Error cargando perfil de cliente:', error);
+        showMessage('❌ Error al cargar perfil', 'error');
+    }
+}
+
+// Función para cerrar modal de perfil
+function closeProfileModal() {
+    const modal = document.querySelector('.modal-overlay');
+    if (modal) modal.remove();
+}
+
+// ========== FUNCIONES DE CALIFICACIONES ==========
+
+// Función para mostrar formulario de calificación
+async function showRatingForm(tareaId) {
+    try {
+        const formContainer = document.getElementById(`rating-form-${tareaId}`);
+        if (!formContainer) {
+            showMessage('❌ Error: No se encontró el contenedor del formulario', 'error');
+            return;
+        }
+
+        // Si ya está visible, ocultarlo
+        if (formContainer.style.display !== 'none') {
+            formContainer.style.display = 'none';
+            return;
+        }
+
+        // Obtener información de la tarea para saber a quién calificar
+        const response = await fetch(`${API_BASE}/task/my-tasks`, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        const tarea = data.tareas?.find(t => t.id === tareaId);
+
+        if (!tarea) {
+            showMessage('❌ Error: No se encontró la tarea', 'error');
+            return;
+        }
+
+        // Determinar a quién se está calificando
+        const userType = currentUser.tipo;
+        let calificadoNombre = '';
+        
+        if (userType === 'cliente') {
+            // Cliente califica al tasker
+            calificadoNombre = tarea.tasker_id ? `Tasker ID ${tarea.tasker_id}` : 'Tasker';
+        } else {
+            // Tasker califica al cliente
+            calificadoNombre = tarea.cliente ? `${tarea.cliente.nombre} ${tarea.cliente.apellido || ''}` : 'Cliente';
+        }
+
+        // Verificar si ya calificó
+        const ratingResponse = await fetch(`${API_BASE}/rating/task/${tareaId}`, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        let calificacionExistente = null;
+        if (ratingResponse.ok) {
+            const ratingData = await ratingResponse.json();
+            calificacionExistente = ratingData.calificaciones?.find(c => 
+                c.calificador_tipo === userType
+            );
+        }
+
+        // Crear formulario HTML con campos adicionales
+        const formHTML = `
+            <div class="rating-form" onclick="event.stopPropagation()">
+                <h4>⭐ Calificar a ${calificadoNombre}</h4>
+                <form id="ratingForm-${tareaId}" onsubmit="submitRating(event, ${tareaId})" onclick="event.stopPropagation()">
+                    <div class="rating-stars" onclick="event.stopPropagation()">
+                        <label>Calificación General (1-5 estrellas) *</label>
+                        <div class="stars-input">
+                            ${[1, 2, 3, 4, 5].map(star => `
+                                <button type="button" class="star-btn" data-star="${star}" onclick="event.stopPropagation(); selectStar(${star}, ${tareaId}, 'general')">
+                                    ${star <= (calificacionExistente?.estrellas || 0) ? '⭐' : '☆'}
+                                </button>
+                            `).join('')}
+                        </div>
+                        <input type="hidden" id="ratingStars-${tareaId}" value="${calificacionExistente?.estrellas || 0}" required>
+                    </div>
+                    
+                    <div class="rating-criteria">
+                        <div class="rating-criterion" onclick="event.stopPropagation()">
+                            <label>⏰ Puntualidad</label>
+                            <div class="stars-input small">
+                                ${[1, 2, 3, 4, 5].map(star => `
+                                    <button type="button" class="star-btn small" data-star="${star}" onclick="event.stopPropagation(); selectStar(${star}, ${tareaId}, 'puntualidad')">
+                                        ${star <= (calificacionExistente?.puntualidad || 0) ? '⭐' : '☆'}
+                                    </button>
+                                `).join('')}
+                            </div>
+                            <input type="hidden" id="ratingPuntualidad-${tareaId}" value="${calificacionExistente?.puntualidad || 0}">
+                        </div>
+                        
+                        <div class="rating-criterion" onclick="event.stopPropagation()">
+                            <label>🔧 Calidad del Trabajo</label>
+                            <div class="stars-input small">
+                                ${[1, 2, 3, 4, 5].map(star => `
+                                    <button type="button" class="star-btn small" data-star="${star}" onclick="event.stopPropagation(); selectStar(${star}, ${tareaId}, 'calidad')">
+                                        ${star <= (calificacionExistente?.calidad_trabajo || 0) ? '⭐' : '☆'}
+                                    </button>
+                                `).join('')}
+                            </div>
+                            <input type="hidden" id="ratingCalidad-${tareaId}" value="${calificacionExistente?.calidad_trabajo || 0}">
+                        </div>
+                        
+                        <div class="rating-criterion" onclick="event.stopPropagation()">
+                            <label>💬 Comunicación</label>
+                            <div class="stars-input small">
+                                ${[1, 2, 3, 4, 5].map(star => `
+                                    <button type="button" class="star-btn small" data-star="${star}" onclick="event.stopPropagation(); selectStar(${star}, ${tareaId}, 'comunicacion')">
+                                        ${star <= (calificacionExistente?.comunicacion || 0) ? '⭐' : '☆'}
+                                    </button>
+                                `).join('')}
+                            </div>
+                            <input type="hidden" id="ratingComunicacion-${tareaId}" value="${calificacionExistente?.comunicacion || 0}">
+                        </div>
+                        
+                        <div class="rating-criterion" onclick="event.stopPropagation()">
+                            <label>👔 Profesionalismo</label>
+                            <div class="stars-input small">
+                                ${[1, 2, 3, 4, 5].map(star => `
+                                    <button type="button" class="star-btn small" data-star="${star}" onclick="event.stopPropagation(); selectStar(${star}, ${tareaId}, 'profesionalismo')">
+                                        ${star <= (calificacionExistente?.profesionalismo || 0) ? '⭐' : '☆'}
+                                    </button>
+                                `).join('')}
+                            </div>
+                            <input type="hidden" id="ratingProfesionalismo-${tareaId}" value="${calificacionExistente?.profesionalismo || 0}">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" onclick="event.stopPropagation()">
+                        <label for="ratingComment-${tareaId}">Comentario (opcional)</label>
+                        <textarea id="ratingComment-${tareaId}" rows="3" placeholder="Escribe tu opinión sobre el trabajo realizado..." onclick="event.stopPropagation()" onfocus="event.stopPropagation()">${calificacionExistente?.comentario || ''}</textarea>
+                    </div>
+                    <div class="rating-form-actions" onclick="event.stopPropagation()">
+                        <button type="submit" class="btn-primary" onclick="event.stopPropagation()">💾 ${calificacionExistente ? 'Actualizar' : 'Enviar'} Calificación</button>
+                        <button type="button" class="btn-secondary" onclick="event.stopPropagation(); document.getElementById('rating-form-${tareaId}').style.display='none'">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        `;
+
+        formContainer.innerHTML = formHTML;
+        formContainer.style.display = 'block';
+
+        // Si ya hay calificación, seleccionar las estrellas
+        if (calificacionExistente) {
+            selectStar(calificacionExistente.estrellas, tareaId, 'general');
+            if (calificacionExistente.puntualidad) {
+                selectStar(calificacionExistente.puntualidad, tareaId, 'puntualidad');
+            }
+            if (calificacionExistente.calidad_trabajo) {
+                selectStar(calificacionExistente.calidad_trabajo, tareaId, 'calidad');
+            }
+            if (calificacionExistente.comunicacion) {
+                selectStar(calificacionExistente.comunicacion, tareaId, 'comunicacion');
+            }
+            if (calificacionExistente.profesionalismo) {
+                selectStar(calificacionExistente.profesionalismo, tareaId, 'profesionalismo');
+            }
+        }
+    } catch (error) {
+        console.error('Error mostrando formulario de calificación:', error);
+        showMessage('❌ Error al cargar formulario de calificación', 'error');
+    }
+}
+
+// Función para seleccionar estrellas
+function selectStar(starCount, tareaId, tipo = 'general') {
+    let inputId, selector;
+    
+    switch(tipo) {
+        case 'puntualidad':
+            inputId = `ratingPuntualidad-${tareaId}`;
+            selector = `#rating-form-${tareaId} .rating-criterion:first-of-type .star-btn`;
+            break;
+        case 'calidad':
+            inputId = `ratingCalidad-${tareaId}`;
+            selector = `#rating-form-${tareaId} .rating-criterion:nth-of-type(2) .star-btn`;
+            break;
+        case 'comunicacion':
+            inputId = `ratingComunicacion-${tareaId}`;
+            selector = `#rating-form-${tareaId} .rating-criterion:nth-of-type(3) .star-btn`;
+            break;
+        case 'profesionalismo':
+            inputId = `ratingProfesionalismo-${tareaId}`;
+            selector = `#rating-form-${tareaId} .rating-criterion:nth-of-type(4) .star-btn`;
+            break;
+        default: // general
+            inputId = `ratingStars-${tareaId}`;
+            selector = `#rating-form-${tareaId} .rating-stars:first-of-type .star-btn`;
+    }
+    
+    const starsInput = document.getElementById(inputId);
+    if (starsInput) {
+        starsInput.value = starCount;
+    }
+
+    // Actualizar visualización de estrellas del criterio específico
+    const starButtons = document.querySelectorAll(selector);
+    starButtons.forEach((btn, index) => {
+        const starNum = index + 1;
+        btn.textContent = starNum <= starCount ? '⭐' : '☆';
+        btn.style.opacity = starNum <= starCount ? '1' : '0.3';
+    });
+}
+
+// Función para enviar calificación
+async function submitRating(event, tareaId) {
+    event.preventDefault();
+
+    try {
+        const estrellas = parseInt(document.getElementById(`ratingStars-${tareaId}`).value);
+        const puntualidad = parseInt(document.getElementById(`ratingPuntualidad-${tareaId}`)?.value || 0) || null;
+        const calidad_trabajo = parseInt(document.getElementById(`ratingCalidad-${tareaId}`)?.value || 0) || null;
+        const comunicacion = parseInt(document.getElementById(`ratingComunicacion-${tareaId}`)?.value || 0) || null;
+        const profesionalismo = parseInt(document.getElementById(`ratingProfesionalismo-${tareaId}`)?.value || 0) || null;
+        const comentario = document.getElementById(`ratingComment-${tareaId}`).value.trim();
+
+        if (!estrellas || estrellas < 1 || estrellas > 5) {
+            showMessage('❌ Por favor selecciona una calificación general de 1 a 5 estrellas', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/rating/create`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            },
+            body: JSON.stringify({
+                tarea_id: tareaId,
+                estrellas: estrellas,
+                puntualidad: puntualidad,
+                calidad_trabajo: calidad_trabajo,
+                comunicacion: comunicacion,
+                profesionalismo: profesionalismo,
+                comentario: comentario || null
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage('✅ Calificación enviada exitosamente', 'success');
+            
+            // Ocultar formulario
+            const formContainer = document.getElementById(`rating-form-${tareaId}`);
+            if (formContainer) {
+                formContainer.style.display = 'none';
+            }
+
+            // Recargar las tareas para actualizar la vista
+            if (currentUser.tipo === 'cliente') {
+                loadClientHistoryTasks();
+            } else {
+                loadTaskerHistoryTasks();
+            }
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al enviar calificación'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error enviando calificación:', error);
+        showMessage('❌ Error de conexión al enviar calificación', 'error');
+    }
+}
+
+// Función para cargar y mostrar calificaciones de un usuario
+async function loadUserRatings(userId, userType, containerId) {
+    try {
+        // El endpoint de calificaciones es público, pero si hay token lo enviamos
+        const headers = {};
+        if (currentToken) {
+            headers['Authorization'] = `Bearer ${currentToken}`;
+        }
+
+        const response = await fetch(`${API_BASE}/rating/user/${userId}?tipo=${userType}`, {
+            headers: headers
+        });
+
+        const data = await response.json();
+        const container = document.getElementById(containerId);
+
+        if (response.ok && container) {
+            const { calificaciones, promedio, cantidad } = data;
+
+            let ratingsHTML = '';
+
+            if (cantidad > 0) {
+                ratingsHTML += `
+                    <div class="ratings-summary">
+                        <div class="rating-average">
+                            <span class="average-stars">${'⭐'.repeat(Math.round(promedio))}${'☆'.repeat(5 - Math.round(promedio))}</span>
+                            <span class="average-number">${promedio.toFixed(1)}</span>
+                            <span class="rating-count">(${cantidad} ${cantidad === 1 ? 'calificación' : 'calificaciones'})</span>
+                        </div>
+                    </div>
+                    <div class="ratings-list">
+                        <h4>Calificaciones recibidas:</h4>
+                        ${calificaciones.map(calif => {
+                            const fecha = new Date(calif.createdAt).toLocaleDateString('es-ES');
+                            const criterios = [];
+                            if (calif.puntualidad) criterios.push(`⏰ Puntualidad: ${'⭐'.repeat(calif.puntualidad)}${'☆'.repeat(5 - calif.puntualidad)}`);
+                            if (calif.calidad_trabajo) criterios.push(`🔧 Calidad: ${'⭐'.repeat(calif.calidad_trabajo)}${'☆'.repeat(5 - calif.calidad_trabajo)}`);
+                            if (calif.comunicacion) criterios.push(`💬 Comunicación: ${'⭐'.repeat(calif.comunicacion)}${'☆'.repeat(5 - calif.comunicacion)}`);
+                            if (calif.profesionalismo) criterios.push(`👔 Profesionalismo: ${'⭐'.repeat(calif.profesionalismo)}${'☆'.repeat(5 - calif.profesionalismo)}`);
+                            
+                            return `
+                                <div class="rating-item">
+                                    <div class="rating-header">
+                                        <div>
+                                            <span class="rating-stars-display">${'⭐'.repeat(calif.estrellas)}${'☆'.repeat(5 - calif.estrellas)}</span>
+                                            <span class="rating-general-label">Calificación General</span>
+                                        </div>
+                                        <span class="rating-date">${fecha}</span>
+                                    </div>
+                                    ${criterios.length > 0 ? `
+                                        <div class="rating-criteria-display">
+                                            ${criterios.map(c => `<span class="rating-criterion-item">${c}</span>`).join('')}
+                                        </div>
+                                    ` : ''}
+                                    ${calif.comentario ? `<p class="rating-comment">"${escapeHtml(calif.comentario)}"</p>` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            } else {
+                ratingsHTML = `
+                    <div class="no-ratings">
+                        <p>⭐ Aún no tiene calificaciones</p>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = ratingsHTML;
+        }
+    } catch (error) {
+        console.error('Error cargando calificaciones:', error);
+    }
+}
 
 // Probar conexión al cargar la página
 testConnection();

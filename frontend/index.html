@@ -14,16 +14,19 @@
         </header>
 
         <nav class="nav-tabs">
-            <button class="tab-btn active" onclick="showTab('register')">Registro</button>
-            <button class="tab-btn" onclick="showTab('login')">Login</button>
+            <button class="tab-btn" onclick="showTab('register')">Registro</button>
+            <button class="tab-btn active" onclick="showTab('login')">Login</button>
             <button class="tab-btn" onclick="showTab('dashboard')" style="display: none;">🏠 Dashboard</button>
             <button class="tab-btn" onclick="showTabWithContent('tasks')" style="display: none;">Tareas</button>
+            <button class="tab-btn" onclick="showTabWithContent('profile')" style="display: none;">👤 Perfil</button>
+            <button class="tab-btn" onclick="showTabWithContent('search')" style="display: none;">🔍 Buscar</button>
+            <button class="tab-btn" id="availabilityBtn" onclick="toggleAvailability()" style="display: none;">✅ Disponible</button>
             <button class="tab-btn" onclick="showTab('admin')" style="display: none;">Admin</button>
             <button class="tab-btn demo-btn" onclick="loadDemoData()">🎯 Demo</button>
             <button class="tab-btn logout-btn" onclick="logout()" style="display: none;">🚪 Salir</button>
         </nav>
 
-        <div id="register" class="tab-content active">
+        <div id="register" class="tab-content">
             <h2>Registro de Usuario</h2>
             <div class="form-container">
                 <select id="userType" onchange="toggleUserForm()">
@@ -113,7 +116,7 @@
             </div>
         </div>
 
-        <div id="login" class="tab-content">
+        <div id="login" class="tab-content active">
             <h2>Iniciar Sesión</h2>
             <div class="form-container">
                 <form id="loginForm">
@@ -141,6 +144,18 @@
 
         <div id="dashboard" class="tab-content">
             <div id="dashboardContent"></div>
+        </div>
+
+        <div id="profile" class="tab-content">
+            <div id="profileContent">
+                <!-- El contenido se genera dinámicamente según el tipo de usuario -->
+            </div>
+        </div>
+
+        <div id="search" class="tab-content">
+            <div id="searchContent">
+                <!-- El contenido se genera dinámicamente según el tipo de usuario -->
+            </div>
         </div>
 
         <div id="messages" class="messages"></div>

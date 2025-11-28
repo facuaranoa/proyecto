@@ -67,3 +67,5 @@ El `.gitignore` está configurado para **NO subir**:
 Esto es correcto y seguro. Los datos de desarrollo se recrean automáticamente.
 
 
+
+

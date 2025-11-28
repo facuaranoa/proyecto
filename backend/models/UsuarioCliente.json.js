@@ -45,6 +45,12 @@ class UsuarioCliente {
     return usuario ? new UsuarioCliente(usuario) : null;
   }
 
+  // Método estático: encontrar todos los clientes
+  static async findAll(options = {}) {
+    const usuarios = await readFile(FILE_KEY);
+    return usuarios.map(u => new UsuarioCliente(u));
+  }
+
   // Método estático: crear nuevo usuario
   static async create(data) {
     const usuarios = await readFile(FILE_KEY);
@@ -107,5 +113,7 @@ class UsuarioCliente {
 }
 
 module.exports = UsuarioCliente;
+
+
 
 

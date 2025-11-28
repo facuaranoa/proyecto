@@ -22,6 +22,7 @@ const Admin = require('./models/Admin'); // Inicializar modelo Admin
 // Importar rutas
 const authRoutes = require('./routes/auth');
 const taskerRoutes = require('./routes/tasker');
+const clienteRoutes = require('./routes/cliente');
 const adminRoutes = require('./routes/admin');
 const taskRoutes = require('./routes/task');
 const ratingRoutes = require('./routes/rating');
@@ -41,6 +42,7 @@ app.use('/uploads', express.static('uploads'));
 // Rutas
 app.use('/api/auth', authRoutes);
 app.use('/api/tasker', taskerRoutes);
+app.use('/api/cliente', clienteRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/task', taskRoutes);
 app.use('/api/rating', ratingRoutes);

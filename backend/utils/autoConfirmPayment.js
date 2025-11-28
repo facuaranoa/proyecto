@@ -31,16 +31,28 @@ async function autoConfirmPendingPayments() {
         const fechaFinalizacion = new Date(tarea.fecha_finalizacion_trabajo);
         const tiempoTranscurrido = ahora - fechaFinalizacion;
 
-        // Si han pasado más de 48 horas, auto-confirmar
-        if (tiempoTranscurrido >= horas48) {
+        // Si han pasado más de 48 horas y el cliente no ha confirmado, auto-confirmar como cliente
+        if (tiempoTranscurrido >= horas48 && !tarea.fecha_confirmacion_pago) {
+          const fechaConfirmacion = ahora.toISOString();
           await tarea.update({
-            estado: 'FINALIZADA',
-            fecha_confirmacion_pago: ahora.toISOString(),
+            fecha_confirmacion_pago: fechaConfirmacion,
             auto_confirmado: true // Marcar como auto-confirmado
           });
 
+          // Recargar la tarea para verificar si el tasker ya confirmó
+          const tareaRecargada = await Tarea.findByPk(tarea.id);
+          
+          // Si el tasker ya confirmó que recibió el pago, entonces finalizar
+          if (tareaRecargada.pago_recibido_tasker) {
+            await tareaRecargada.update({
+              estado: 'FINALIZADA'
+            });
+            console.log(`✅ Tarea ${tarea.id} auto-confirmada y finalizada (ambas partes confirmaron, pasaron ${Math.round(tiempoTranscurrido / (60 * 60 * 1000))} horas)`);
+          } else {
+            console.log(`✅ Tarea ${tarea.id} auto-confirmada como cliente (pasaron ${Math.round(tiempoTranscurrido / (60 * 60 * 1000))} horas). Esperando confirmación del tasker.`);
+          }
+
           confirmadas++;
-          console.log(`✅ Tarea ${tarea.id} auto-confirmada (pasaron ${Math.round(tiempoTranscurrido / (60 * 60 * 1000))} horas)`);
         }
       }
     }
@@ -76,14 +88,27 @@ async function checkAndAutoConfirmTask(tareaId) {
       const tiempoTranscurrido = ahora - fechaFinalizacion;
       const horas48 = 48 * 60 * 60 * 1000;
 
-      if (tiempoTranscurrido >= horas48) {
+      // Si han pasado más de 48 horas y el cliente no ha confirmado, auto-confirmar como cliente
+      if (tiempoTranscurrido >= horas48 && !tarea.fecha_confirmacion_pago) {
+        const fechaConfirmacion = ahora.toISOString();
         await tarea.update({
-          estado: 'FINALIZADA',
-          fecha_confirmacion_pago: ahora.toISOString(),
+          fecha_confirmacion_pago: fechaConfirmacion,
           auto_confirmado: true
         });
 
-        console.log(`✅ Tarea ${tareaId} auto-confirmada al consultarla`);
+        // Recargar la tarea para verificar si el tasker ya confirmó
+        const tareaRecargada = await Tarea.findByPk(tareaId);
+        
+        // Si el tasker ya confirmó que recibió el pago, entonces finalizar
+        if (tareaRecargada.pago_recibido_tasker) {
+          await tareaRecargada.update({
+            estado: 'FINALIZADA'
+          });
+          console.log(`✅ Tarea ${tareaId} auto-confirmada y finalizada al consultarla (ambas partes confirmaron)`);
+        } else {
+          console.log(`✅ Tarea ${tareaId} auto-confirmada como cliente al consultarla. Esperando confirmación del tasker.`);
+        }
+
         return true;
       }
     }
@@ -99,5 +124,7 @@ module.exports = {
   autoConfirmPendingPayments,
   checkAndAutoConfirmTask
 };
+
+
 
 

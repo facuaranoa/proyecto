@@ -26,6 +26,13 @@ class Tasker {
     this.licencia_conducir_url = data.licencia_conducir_url || null;
     this.aprobado_admin = data.aprobado_admin || false;
     this.disponible = data.disponible !== undefined ? data.disponible : true;
+    // Nuevos campos: skills, licencias y categorías
+    this.skills = data.skills || []; // Array de habilidades (ej: ["Plomería", "Electricidad"])
+    this.licencias = data.licencias || []; // Array de licencias (ej: ["Licencia de conducir", "Matrícula de gasista"])
+    this.categoria_principal = data.categoria_principal || null; // EXPRESS, OFICIOS, etc.
+    this.especialidades = data.especialidades || []; // Array de especialidades dentro de OFICIOS (ej: ["Plomería", "Albañilería", "Electricista", "Gasista"])
+    this.descripcion_profesional = data.descripcion_profesional || null; // Descripción del trabajo/profesión
+    this.cvu_cbu = data.cvu_cbu || null; // CVU/CBU para recibir pagos
     this.createdAt = data.createdAt || new Date().toISOString();
     this.updatedAt = data.updatedAt || new Date().toISOString();
   }
@@ -94,6 +101,12 @@ class Tasker {
       licencia_conducir_url: data.licencia_conducir_url || null,
       aprobado_admin: data.aprobado_admin || false,
       disponible: data.disponible !== undefined ? data.disponible : true,
+      skills: data.skills || [],
+      licencias: data.licencias || [],
+      categoria_principal: data.categoria_principal || null,
+      especialidades: data.especialidades || [],
+      descripcion_profesional: data.descripcion_profesional || null,
+      cvu_cbu: data.cvu_cbu || null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

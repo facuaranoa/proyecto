@@ -268,6 +268,7 @@ const login = async (req, res) => {
       email: usuario.email,
       nombre: usuario.nombre,
       apellido: usuario.apellido,
+      telefono: usuario.telefono, // Incluir teléfono para todos los tipos
       tipo: tipo
     };
 
