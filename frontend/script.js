@@ -102,10 +102,10 @@ function showTab(tabName) {
     if (tabElement) {
         tabElement.classList.add('active');
         
-        // Si es el panel admin, cargar taskers automáticamente
+        // Si es el panel admin, cargar contenido automáticamente
         if (tabName === 'admin' && currentUser && currentUser.tipo === 'admin') {
             setTimeout(() => {
-                listarTaskers();
+                showAdminContent();
             }, 100);
         }
     } else {
@@ -473,85 +473,413 @@ async function createTask(event) {
     }
 }
 
-// Función para listar taskers pendientes (solo admin)
-async function listarTaskers() {
+// ========== FUNCIONES DE ADMINISTRACIÓN ==========
+
+// Función para mostrar el contenido del panel admin
+function showAdminContent() {
+    const adminContent = document.getElementById('adminContent');
+    if (!adminContent) return;
+
+    const adminHTML = `
+        <div class="admin-panel">
+            <!-- PESTAÑAS DEL ADMIN -->
+            <div class="admin-tabs">
+                <button class="admin-tab-btn active" onclick="showAdminTab('dashboard')" id="admin-tab-dashboard">
+                    📊 Dashboard
+                </button>
+                <button class="admin-tab-btn" onclick="showAdminTab('taskers')" id="admin-tab-taskers">
+                    👷 Taskers
+                </button>
+                <button class="admin-tab-btn" onclick="showAdminTab('clientes')" id="admin-tab-clientes">
+                    👥 Clientes
+                </button>
+                <button class="admin-tab-btn" onclick="showAdminTab('tareas')" id="admin-tab-tareas">
+                    📋 Tareas
+                </button>
+            </div>
+
+            <!-- CONTENIDO: DASHBOARD -->
+            <div id="admin-tab-content-dashboard" class="admin-tab-content active">
+                <h3>📊 Estadísticas Generales</h3>
+                <div id="adminStats" class="admin-stats-container">
+                    <p>Cargando estadísticas...</p>
+                </div>
+            </div>
+
+            <!-- CONTENIDO: TASKERS -->
+            <div id="admin-tab-content-taskers" class="admin-tab-content">
+                <div class="admin-section-header">
+                    <h3>👷 Gestión de Taskers</h3>
+                    <div class="admin-filters">
+                        <button class="btn-secondary" onclick="loadAdminTaskers('all')">Todos</button>
+                        <button class="btn-secondary" onclick="loadAdminTaskers('pending')">Pendientes</button>
+                        <button class="btn-secondary" onclick="loadAdminTaskers('approved')">Aprobados</button>
+                    </div>
+                </div>
+                <div id="adminTaskersList" class="admin-list-container">
+                    <p>Cargando taskers...</p>
+                </div>
+            </div>
+
+            <!-- CONTENIDO: CLIENTES -->
+            <div id="admin-tab-content-clientes" class="admin-tab-content">
+                <h3>👥 Gestión de Clientes</h3>
+                <div id="adminClientesList" class="admin-list-container">
+                    <p>Cargando clientes...</p>
+                </div>
+            </div>
+
+            <!-- CONTENIDO: TAREAS -->
+            <div id="admin-tab-content-tareas" class="admin-tab-content">
+                <div class="admin-section-header">
+                    <h3>📋 Gestión de Tareas</h3>
+                    <div class="admin-filters">
+                        <select id="adminTareasFilter" onchange="loadAdminTareas()">
+                            <option value="all">Todas</option>
+                            <option value="PENDIENTE">Pendientes</option>
+                            <option value="ASIGNADA">Asignadas</option>
+                            <option value="EN_PROCESO">En Proceso</option>
+                            <option value="PENDIENTE_PAGO">Pendiente Pago</option>
+                            <option value="FINALIZADA">Finalizadas</option>
+                            <option value="CANCELADA">Canceladas</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="adminTareasList" class="admin-list-container">
+                    <p>Cargando tareas...</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    adminContent.innerHTML = adminHTML;
+
+    // Cargar dashboard por defecto
+    loadAdminStats();
+    loadAdminTaskers('pending');
+}
+
+// Función para cambiar entre pestañas del admin
+function showAdminTab(tabName) {
+    // Ocultar todas las pestañas
+    document.querySelectorAll('.admin-tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+
+    // Mostrar la pestaña seleccionada
+    const tabContent = document.getElementById(`admin-tab-content-${tabName}`);
+    const tabBtn = document.getElementById(`admin-tab-${tabName}`);
+    
+    if (tabContent) tabContent.classList.add('active');
+    if (tabBtn) tabBtn.classList.add('active');
+
+    // Cargar contenido según la pestaña
+    switch(tabName) {
+        case 'dashboard':
+            loadAdminStats();
+            break;
+        case 'taskers':
+            loadAdminTaskers('pending');
+            break;
+        case 'clientes':
+            loadAdminClientes();
+            break;
+        case 'tareas':
+            loadAdminTareas();
+            break;
+    }
+}
+
+// Función para cargar estadísticas del dashboard
+async function loadAdminStats() {
     try {
-        if (!currentToken) {
-            showMessage('❌ Debes iniciar sesión primero', 'error');
-            return;
-        }
+        const statsContainer = document.getElementById('adminStats');
+        if (!statsContainer) return;
 
-        const adminResult = document.getElementById('adminResult');
-        adminResult.innerHTML = '<p>Cargando taskers...</p>';
-
-        // Obtener solo taskers pendientes
-        const response = await fetch(`${API_BASE}/admin/taskers?pendientes=true`, {
-            method: 'GET',
+        const response = await fetch(`${API_BASE}/admin/stats`, {
             headers: {
                 'Authorization': `Bearer ${currentToken}`
             }
         });
 
         const data = await response.json();
-
-        if (!response.ok) {
-            showMessage(`❌ Error: ${data.message || 'Error al cargar taskers'}`, 'error');
-            adminResult.innerHTML = `<p class="error">Error: ${data.message}</p>`;
-            return;
-        }
-
-        const taskers = data.taskers || [];
-
-        if (taskers.length === 0) {
-            adminResult.innerHTML = `
-                <div class="no-taskers-message">
-                    <p>✅ No hay taskers pendientes de aprobación.</p>
-                    <p>Todos los taskers han sido aprobados.</p>
+        if (response.ok && data.stats) {
+            const stats = data.stats;
+            statsContainer.innerHTML = `
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">👥</div>
+                        <div class="stat-info">
+                            <h4>Usuarios</h4>
+                            <p class="stat-number">${stats.usuarios.totalUsuarios}</p>
+                            <p class="stat-detail">${stats.usuarios.totalClientes} clientes • ${stats.usuarios.totalTaskers} taskers</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">👷</div>
+                        <div class="stat-info">
+                            <h4>Taskers</h4>
+                            <p class="stat-number">${stats.usuarios.taskersAprobados}</p>
+                            <p class="stat-detail">${stats.usuarios.taskersPendientes} pendientes</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📋</div>
+                        <div class="stat-info">
+                            <h4>Tareas</h4>
+                            <p class="stat-number">${stats.tareas.total}</p>
+                            <p class="stat-detail">${stats.tareas.porEstado.FINALIZADA} finalizadas</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-info">
+                            <h4>Ingresos</h4>
+                            <p class="stat-number">$${stats.finanzas.ingresosTotales.toLocaleString('es-AR')}</p>
+                            <p class="stat-detail">Comisiones: $${stats.finanzas.comisionesTotales.toLocaleString('es-AR')}</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">⭐</div>
+                        <div class="stat-info">
+                            <h4>Calificaciones</h4>
+                            <p class="stat-number">${stats.calificaciones.promedio.toFixed(1)}</p>
+                            <p class="stat-detail">${stats.calificaciones.total} calificaciones</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-info">
+                            <h4>Estados de Tareas</h4>
+                            <div class="stat-states">
+                                <span>Pendiente: ${stats.tareas.porEstado.PENDIENTE}</span>
+                                <span>Asignada: ${stats.tareas.porEstado.ASIGNADA}</span>
+                                <span>En Proceso: ${stats.tareas.porEstado.EN_PROCESO}</span>
+                                <span>Finalizada: ${stats.tareas.porEstado.FINALIZADA}</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             `;
-            return;
+        } else {
+            statsContainer.innerHTML = `<p class="error">Error al cargar estadísticas</p>`;
+        }
+    } catch (error) {
+        console.error('Error cargando estadísticas:', error);
+        const statsContainer = document.getElementById('adminStats');
+        if (statsContainer) {
+            statsContainer.innerHTML = `<p class="error">Error de conexión</p>`;
+        }
+    }
+}
+
+// Función para cargar taskers (con filtro)
+async function loadAdminTaskers(filter = 'pending') {
+    try {
+        const listContainer = document.getElementById('adminTaskersList');
+        if (!listContainer) return;
+
+        let url = `${API_BASE}/admin/taskers`;
+        if (filter === 'pending') {
+            url += '?pendientes=true';
         }
 
-        let html = '<div class="tasker-list">';
-        html += `<h3>Taskers Pendientes (${taskers.length})</h3>`;
-
-        taskers.forEach(tasker => {
-            const estadoBadge = tasker.aprobado_admin 
-                ? '<span class="badge approved">✅ Aprobado</span>' 
-                : '<span class="badge pending">⏳ Pendiente</span>';
-
-            html += `
-                <div class="tasker-item">
-                    <div class="tasker-header">
-                        <h4>${tasker.nombre} ${tasker.apellido}</h4>
-                        ${estadoBadge}
-                    </div>
-                    <p><strong>Email:</strong> ${tasker.email}</p>
-                    <p><strong>Teléfono:</strong> ${tasker.telefono || 'No especificado'}</p>
-                    ${tasker.cuit ? `<p><strong>CUIT:</strong> ${tasker.cuit}</p>` : ''}
-                    <p><strong>Monotributista:</strong> ${tasker.monotributista_check ? 'Sí' : 'No'}</p>
-                    <p><strong>Disponible:</strong> ${tasker.disponible ? 'Sí' : 'No'}</p>
-                    <p><strong>Fecha de registro:</strong> ${new Date(tasker.createdAt).toLocaleDateString('es-ES')}</p>
-                    <div class="tasker-actions">
-                        ${!tasker.aprobado_admin ? `
-                            <button class="verify-btn" onclick="aprobarTasker(${tasker.id})">✅ Aprobar Tasker</button>
-                        ` : `
-                            <button class="reject-btn" onclick="rechazarTasker(${tasker.id})">❌ Rechazar Tasker</button>
-                        `}
-                    </div>
-                </div>
-            `;
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
         });
 
-        html += '</div>';
-        adminResult.innerHTML = html;
+        const data = await response.json();
+        if (response.ok && data.taskers) {
+            let taskers = data.taskers;
+            
+            // Filtrar por aprobados si es necesario
+            if (filter === 'approved') {
+                taskers = taskers.filter(t => t.aprobado_admin);
+            } else if (filter === 'pending') {
+                taskers = taskers.filter(t => !t.aprobado_admin);
+            }
 
-        showMessage(`✅ ${taskers.length} tasker(s) cargado(s) correctamente`, 'success');
+            if (taskers.length === 0) {
+                listContainer.innerHTML = `<p class="no-results">No hay taskers ${filter === 'pending' ? 'pendientes' : filter === 'approved' ? 'aprobados' : ''}</p>`;
+                return;
+            }
+
+            let html = '<div class="admin-items-list">';
+            taskers.forEach(tasker => {
+                const estadoBadge = tasker.aprobado_admin 
+                    ? '<span class="badge approved">✅ Aprobado</span>' 
+                    : '<span class="badge pending">⏳ Pendiente</span>';
+
+                html += `
+                    <div class="admin-item-card">
+                        <div class="item-header">
+                            <h4>${tasker.nombre} ${tasker.apellido}</h4>
+                            ${estadoBadge}
+                        </div>
+                        <div class="item-details">
+                            <p><strong>Email:</strong> ${tasker.email}</p>
+                            <p><strong>Teléfono:</strong> ${tasker.telefono || 'No especificado'}</p>
+                            ${tasker.cuit ? `<p><strong>CUIT:</strong> ${tasker.cuit}</p>` : ''}
+                            <p><strong>Monotributista:</strong> ${tasker.monotributista_check ? 'Sí' : 'No'}</p>
+                            <p><strong>Disponible:</strong> ${tasker.disponible ? 'Sí' : 'No'}</p>
+                            <p><strong>Registro:</strong> ${new Date(tasker.createdAt).toLocaleDateString('es-ES')}</p>
+                        </div>
+                        <div class="item-actions">
+                            ${!tasker.aprobado_admin ? `
+                                <button class="btn-primary" onclick="aprobarTasker(${tasker.id})">✅ Aprobar</button>
+                            ` : `
+                                <button class="btn-secondary" onclick="rechazarTasker(${tasker.id})">❌ Rechazar</button>
+                            `}
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            listContainer.innerHTML = html;
+        } else {
+            listContainer.innerHTML = `<p class="error">Error al cargar taskers</p>`;
+        }
     } catch (error) {
-        console.error('Error al listar taskers:', error);
-        showMessage(`❌ Error: ${error.message}`, 'error');
-        document.getElementById('adminResult').innerHTML = `<p class="error">Error: ${error.message}</p>`;
+        console.error('Error cargando taskers:', error);
+        const listContainer = document.getElementById('adminTaskersList');
+        if (listContainer) {
+            listContainer.innerHTML = `<p class="error">Error de conexión</p>`;
+        }
     }
+}
+
+// Función para cargar clientes
+async function loadAdminClientes() {
+    try {
+        const listContainer = document.getElementById('adminClientesList');
+        if (!listContainer) return;
+
+        const response = await fetch(`${API_BASE}/admin/clientes`, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        if (response.ok && data.clientes) {
+            const clientes = data.clientes;
+
+            if (clientes.length === 0) {
+                listContainer.innerHTML = `<p class="no-results">No hay clientes registrados</p>`;
+                return;
+            }
+
+            let html = '<div class="admin-items-list">';
+            html += `<p class="total-count">Total: ${clientes.length} clientes</p>`;
+            clientes.forEach(cliente => {
+                html += `
+                    <div class="admin-item-card">
+                        <div class="item-header">
+                            <h4>${cliente.nombre} ${cliente.apellido}</h4>
+                        </div>
+                        <div class="item-details">
+                            <p><strong>Email:</strong> ${cliente.email}</p>
+                            <p><strong>Teléfono:</strong> ${cliente.telefono || 'No especificado'}</p>
+                            ${cliente.ubicacion_default ? `<p><strong>Ubicación:</strong> ${cliente.ubicacion_default}</p>` : ''}
+                            <p><strong>Registro:</strong> ${new Date(cliente.createdAt).toLocaleDateString('es-ES')}</p>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            listContainer.innerHTML = html;
+        } else {
+            listContainer.innerHTML = `<p class="error">Error al cargar clientes</p>`;
+        }
+    } catch (error) {
+        console.error('Error cargando clientes:', error);
+        const listContainer = document.getElementById('adminClientesList');
+        if (listContainer) {
+            listContainer.innerHTML = `<p class="error">Error de conexión</p>`;
+        }
+    }
+}
+
+// Función para cargar tareas (con filtro)
+async function loadAdminTareas() {
+    try {
+        const listContainer = document.getElementById('adminTareasList');
+        if (!listContainer) return;
+
+        const filterSelect = document.getElementById('adminTareasFilter');
+        const filter = filterSelect ? filterSelect.value : 'all';
+
+        const response = await fetch(`${API_BASE}/admin/tareas`, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        if (response.ok && data.tareas) {
+            let tareas = data.tareas;
+            
+            // Filtrar por estado si es necesario
+            if (filter !== 'all') {
+                tareas = tareas.filter(t => t.estado === filter);
+            }
+
+            if (tareas.length === 0) {
+                listContainer.innerHTML = `<p class="no-results">No hay tareas ${filter !== 'all' ? `en estado ${filter}` : ''}</p>`;
+                return;
+            }
+
+            let html = '<div class="admin-items-list">';
+            html += `<p class="total-count">Total: ${tareas.length} tareas</p>`;
+            tareas.forEach(tarea => {
+                const estadoBadge = {
+                    'PENDIENTE': '<span class="badge pending">⏳ Pendiente</span>',
+                    'ASIGNADA': '<span class="badge assigned">📋 Asignada</span>',
+                    'EN_PROCESO': '<span class="badge in-progress">🔧 En Proceso</span>',
+                    'PENDIENTE_PAGO': '<span class="badge payment">💳 Pendiente Pago</span>',
+                    'FINALIZADA': '<span class="badge completed">✅ Finalizada</span>',
+                    'CANCELADA': '<span class="badge cancelled">❌ Cancelada</span>'
+                }[tarea.estado] || '';
+
+                html += `
+                    <div class="admin-item-card">
+                        <div class="item-header">
+                            <h4>${tarea.tipo_servicio} - $${parseFloat(tarea.monto_total_acordado || 0).toLocaleString('es-AR')}</h4>
+                            ${estadoBadge}
+                        </div>
+                        <div class="item-details">
+                            <p><strong>Descripción:</strong> ${tarea.descripcion || 'Sin descripción'}</p>
+                            <p><strong>Cliente:</strong> ${tarea.cliente ? `${tarea.cliente.nombre} ${tarea.cliente.apellido} (${tarea.cliente.email})` : 'N/A'}</p>
+                            <p><strong>Tasker:</strong> ${tarea.tasker ? `${tarea.tasker.nombre} ${tarea.tasker.apellido} (${tarea.tasker.email})` : 'No asignado'}</p>
+                            <p><strong>Ubicación:</strong> ${tarea.ubicacion?.direccion || 'No especificada'}</p>
+                            <p><strong>Fecha requerida:</strong> ${new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES')}</p>
+                            <p><strong>Creación:</strong> ${new Date(tarea.createdAt).toLocaleDateString('es-ES')}</p>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            listContainer.innerHTML = html;
+        } else {
+            listContainer.innerHTML = `<p class="error">Error al cargar tareas</p>`;
+        }
+    } catch (error) {
+        console.error('Error cargando tareas:', error);
+        const listContainer = document.getElementById('adminTareasList');
+        if (listContainer) {
+            listContainer.innerHTML = `<p class="error">Error de conexión</p>`;
+        }
+    }
+}
+
+// Función para listar taskers pendientes (solo admin) - MANTENER PARA COMPATIBILIDAD
+async function listarTaskers() {
+    loadAdminTaskers('pending');
 }
 
 // Función para aprobar tasker
@@ -579,9 +907,10 @@ async function aprobarTasker(taskerId) {
 
         if (response.ok) {
             showMessage(`✅ ${data.message}`, 'success');
-            // Recargar la lista de taskers
+            // Recargar la lista de taskers y estadísticas
             setTimeout(() => {
-                listarTaskers();
+                loadAdminTaskers('pending');
+                loadAdminStats();
             }, 1000);
         } else {
             showMessage(`❌ Error: ${data.message || 'Error al aprobar tasker'}`, 'error');
@@ -617,9 +946,10 @@ async function rechazarTasker(taskerId) {
 
         if (response.ok) {
             showMessage(`✅ ${data.message}`, 'success');
-            // Recargar la lista de taskers
+            // Recargar la lista de taskers y estadísticas
             setTimeout(() => {
-                listarTaskers();
+                loadAdminTaskers('pending');
+                loadAdminStats();
             }, 1000);
         } else {
             showMessage(`❌ Error: ${data.message || 'Error al rechazar tasker'}`, 'error');
@@ -4055,10 +4385,12 @@ async function viewTaskerProfile(taskerId) {
         const data = await response.json();
         if (response.ok && data.tasker) {
             const tasker = data.tasker;
+            const isCliente = currentUser.tipo === 'cliente';
+            
             const modalHTML = `
                 <div class="modal-overlay" onclick="closeProfileModal()">
                     <div class="modal-content profile-modal" onclick="event.stopPropagation()">
-                        <button class="modal-close" onclick="closeProfileModal()">×</button>
+                        <button class="modal-close" onclick="event.stopPropagation(); closeProfileModal()" title="Cerrar">×</button>
                         <h2>👤 ${tasker.nombre} ${tasker.apellido}</h2>
                         <div class="profile-full-details">
                             <p><strong>📞 Teléfono:</strong> ${tasker.telefono || 'No especificado'}</p>
@@ -4073,6 +4405,12 @@ async function viewTaskerProfile(taskerId) {
                                 `<p><strong>Descripción:</strong> ${tasker.descripcion_profesional}</p>` : ''}
                             <p><strong>Estado:</strong> ${tasker.disponible ? '✅ Disponible' : '❌ No disponible'}</p>
                         </div>
+                        ${isCliente ? `
+                            <div id="taskerTasks-${taskerId}" class="tasks-to-rate-section">
+                                <h3>📋 Tareas Completadas</h3>
+                                <p>Cargando tareas...</p>
+                            </div>
+                        ` : ''}
                         <div id="taskerRatings-${taskerId}" class="ratings-section">
                             <p>Cargando calificaciones...</p>
                         </div>
@@ -4080,6 +4418,11 @@ async function viewTaskerProfile(taskerId) {
                 </div>
             `;
             document.body.insertAdjacentHTML('beforeend', modalHTML);
+            
+            // Si es cliente, cargar tareas completadas con este tasker
+            if (isCliente) {
+                loadCompletedTasksWithUser(taskerId, 'tasker', `taskerTasks-${taskerId}`);
+            }
             
             // Cargar calificaciones del tasker
             loadUserRatings(taskerId, 'tasker', `taskerRatings-${taskerId}`);
@@ -4102,16 +4445,24 @@ async function viewClienteProfile(clienteId) {
         const data = await response.json();
         if (response.ok && data.cliente) {
             const cliente = data.cliente;
+            const isTasker = currentUser.tipo === 'tasker';
+            
             const modalHTML = `
                 <div class="modal-overlay" onclick="closeProfileModal()">
                     <div class="modal-content profile-modal" onclick="event.stopPropagation()">
-                        <button class="modal-close" onclick="closeProfileModal()">×</button>
+                        <button class="modal-close" onclick="event.stopPropagation(); closeProfileModal()" title="Cerrar">×</button>
                         <h2>👤 ${cliente.nombre} ${cliente.apellido}</h2>
                         <div class="profile-full-details">
                             <p><strong>📞 Teléfono:</strong> ${cliente.telefono || 'No especificado'}</p>
                             ${cliente.ubicacion_default ? 
                                 `<p><strong>📍 Ubicación:</strong> ${cliente.ubicacion_default}</p>` : ''}
                         </div>
+                        ${isTasker ? `
+                            <div id="clienteTasks-${clienteId}" class="tasks-to-rate-section">
+                                <h3>📋 Tareas Completadas</h3>
+                                <p>Cargando tareas...</p>
+                            </div>
+                        ` : ''}
                         <div id="clienteRatings-${clienteId}" class="ratings-section">
                             <p>Cargando calificaciones...</p>
                         </div>
@@ -4119,6 +4470,11 @@ async function viewClienteProfile(clienteId) {
                 </div>
             `;
             document.body.insertAdjacentHTML('beforeend', modalHTML);
+            
+            // Si es tasker, cargar tareas completadas con este cliente
+            if (isTasker) {
+                loadCompletedTasksWithUser(clienteId, 'cliente', `clienteTasks-${clienteId}`);
+            }
             
             // Cargar calificaciones del cliente
             loadUserRatings(clienteId, 'cliente', `clienteRatings-${clienteId}`);
@@ -4153,25 +4509,62 @@ async function showRatingForm(tareaId) {
         }
 
         // Obtener información de la tarea para saber a quién calificar
-        const response = await fetch(`${API_BASE}/task/my-tasks`, {
-            headers: {
-                'Authorization': `Bearer ${currentToken}`
-            }
-        });
+        // Intentar primero desde my-tasks, si no funciona, buscar directamente la tarea
+        let tarea = null;
+        
+        try {
+            const response = await fetch(`${API_BASE}/task/my-tasks`, {
+                headers: {
+                    'Authorization': `Bearer ${currentToken}`
+                }
+            });
+            const data = await response.json();
+            tarea = data.tareas?.find(t => t.id === tareaId);
+        } catch (error) {
+            console.log('No se pudo obtener desde my-tasks, intentando obtener tarea directamente');
+        }
 
-        const data = await response.json();
-        const tarea = data.tareas?.find(t => t.id === tareaId);
+        // Si no se encontró, intentar obtener todas las tareas asignadas (para taskers)
+        if (!tarea && currentUser.tipo === 'tasker') {
+            try {
+                const response = await fetch(`${API_BASE}/task/my-assigned-tasks`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                const data = await response.json();
+                tarea = data.tareas?.find(t => t.id === tareaId);
+            } catch (error) {
+                console.log('No se pudo obtener desde my-assigned');
+            }
+        }
+
+        // Si aún no se encontró, intentar obtener todas las tareas del cliente
+        if (!tarea && currentUser.tipo === 'cliente') {
+            try {
+                const response = await fetch(`${API_BASE}/task/my-tasks`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                const data = await response.json();
+                tarea = data.tareas?.find(t => t.id === tareaId);
+            } catch (error) {
+                console.log('No se pudo obtener desde my-tasks del cliente');
+            }
+        }
 
         if (!tarea) {
-            showMessage('❌ Error: No se encontró la tarea', 'error');
+            showMessage('❌ Error: No se encontró la tarea. Asegúrate de que la tarea esté finalizada y ambas partes hayan confirmado el pago.', 'error');
             return;
         }
 
         // Determinar a quién se está calificando
         const userType = currentUser.tipo;
         let calificadoNombre = '';
+        const esClienteCalificando = userType === 'cliente';
         
-        if (userType === 'cliente') {
+        if (esClienteCalificando) {
             // Cliente califica al tasker
             calificadoNombre = tarea.tasker_id ? `Tasker ID ${tarea.tasker_id}` : 'Tasker';
         } else {
@@ -4194,23 +4587,9 @@ async function showRatingForm(tareaId) {
             );
         }
 
-        // Crear formulario HTML con campos adicionales
-        const formHTML = `
-            <div class="rating-form" onclick="event.stopPropagation()">
-                <h4>⭐ Calificar a ${calificadoNombre}</h4>
-                <form id="ratingForm-${tareaId}" onsubmit="submitRating(event, ${tareaId})" onclick="event.stopPropagation()">
-                    <div class="rating-stars" onclick="event.stopPropagation()">
-                        <label>Calificación General (1-5 estrellas) *</label>
-                        <div class="stars-input">
-                            ${[1, 2, 3, 4, 5].map(star => `
-                                <button type="button" class="star-btn" data-star="${star}" onclick="event.stopPropagation(); selectStar(${star}, ${tareaId}, 'general')">
-                                    ${star <= (calificacionExistente?.estrellas || 0) ? '⭐' : '☆'}
-                                </button>
-                            `).join('')}
-                        </div>
-                        <input type="hidden" id="ratingStars-${tareaId}" value="${calificacionExistente?.estrellas || 0}" required>
-                    </div>
-                    
+        // Si es cliente calificando al tasker, mostrar todos los criterios
+        // Si es tasker calificando al cliente, solo mostrar calificación general
+        const criteriosHTML = esClienteCalificando ? `
                     <div class="rating-criteria">
                         <div class="rating-criterion" onclick="event.stopPropagation()">
                             <label>⏰ Puntualidad</label>
@@ -4260,6 +4639,26 @@ async function showRatingForm(tareaId) {
                             <input type="hidden" id="ratingProfesionalismo-${tareaId}" value="${calificacionExistente?.profesionalismo || 0}">
                         </div>
                     </div>
+        ` : '';
+
+        // Crear formulario HTML
+        const formHTML = `
+            <div class="rating-form" onclick="event.stopPropagation()">
+                <h4>⭐ Calificar a ${calificadoNombre}</h4>
+                <form id="ratingForm-${tareaId}" onsubmit="submitRating(event, ${tareaId})" onclick="event.stopPropagation()">
+                    <div class="rating-stars" onclick="event.stopPropagation()">
+                        <label>Calificación General (1-5 estrellas) *</label>
+                        <div class="stars-input">
+                            ${[1, 2, 3, 4, 5].map(star => `
+                                <button type="button" class="star-btn" data-star="${star}" onclick="event.stopPropagation(); selectStar(${star}, ${tareaId}, 'general')">
+                                    ${star <= (calificacionExistente?.estrellas || 0) ? '⭐' : '☆'}
+                                </button>
+                            `).join('')}
+                        </div>
+                        <input type="hidden" id="ratingStars-${tareaId}" value="${calificacionExistente?.estrellas || 0}" required>
+                    </div>
+                    
+                    ${criteriosHTML}
                     
                     <div class="form-group" onclick="event.stopPropagation()">
                         <label for="ratingComment-${tareaId}">Comentario (opcional)</label>
@@ -4279,17 +4678,20 @@ async function showRatingForm(tareaId) {
         // Si ya hay calificación, seleccionar las estrellas
         if (calificacionExistente) {
             selectStar(calificacionExistente.estrellas, tareaId, 'general');
-            if (calificacionExistente.puntualidad) {
-                selectStar(calificacionExistente.puntualidad, tareaId, 'puntualidad');
-            }
-            if (calificacionExistente.calidad_trabajo) {
-                selectStar(calificacionExistente.calidad_trabajo, tareaId, 'calidad');
-            }
-            if (calificacionExistente.comunicacion) {
-                selectStar(calificacionExistente.comunicacion, tareaId, 'comunicacion');
-            }
-            if (calificacionExistente.profesionalismo) {
-                selectStar(calificacionExistente.profesionalismo, tareaId, 'profesionalismo');
+            // Solo cargar criterios adicionales si es cliente calificando al tasker
+            if (esClienteCalificando) {
+                if (calificacionExistente.puntualidad) {
+                    selectStar(calificacionExistente.puntualidad, tareaId, 'puntualidad');
+                }
+                if (calificacionExistente.calidad_trabajo) {
+                    selectStar(calificacionExistente.calidad_trabajo, tareaId, 'calidad');
+                }
+                if (calificacionExistente.comunicacion) {
+                    selectStar(calificacionExistente.comunicacion, tareaId, 'comunicacion');
+                }
+                if (calificacionExistente.profesionalismo) {
+                    selectStar(calificacionExistente.profesionalismo, tareaId, 'profesionalismo');
+                }
             }
         }
     } catch (error) {
@@ -4344,10 +4746,14 @@ async function submitRating(event, tareaId) {
 
     try {
         const estrellas = parseInt(document.getElementById(`ratingStars-${tareaId}`).value);
-        const puntualidad = parseInt(document.getElementById(`ratingPuntualidad-${tareaId}`)?.value || 0) || null;
-        const calidad_trabajo = parseInt(document.getElementById(`ratingCalidad-${tareaId}`)?.value || 0) || null;
-        const comunicacion = parseInt(document.getElementById(`ratingComunicacion-${tareaId}`)?.value || 0) || null;
-        const profesionalismo = parseInt(document.getElementById(`ratingProfesionalismo-${tareaId}`)?.value || 0) || null;
+        const userType = currentUser.tipo;
+        const esClienteCalificando = userType === 'cliente';
+        
+        // Solo incluir criterios adicionales si es cliente calificando al tasker
+        const puntualidad = esClienteCalificando ? (parseInt(document.getElementById(`ratingPuntualidad-${tareaId}`)?.value || 0) || null) : null;
+        const calidad_trabajo = esClienteCalificando ? (parseInt(document.getElementById(`ratingCalidad-${tareaId}`)?.value || 0) || null) : null;
+        const comunicacion = esClienteCalificando ? (parseInt(document.getElementById(`ratingComunicacion-${tareaId}`)?.value || 0) || null) : null;
+        const profesionalismo = esClienteCalificando ? (parseInt(document.getElementById(`ratingProfesionalismo-${tareaId}`)?.value || 0) || null) : null;
         const comentario = document.getElementById(`ratingComment-${tareaId}`).value.trim();
 
         if (!estrellas || estrellas < 1 || estrellas > 5) {
@@ -4398,6 +4804,112 @@ async function submitRating(event, tareaId) {
     }
 }
 
+// Función para cargar tareas completadas con un usuario específico (para calificar desde perfil)
+async function loadCompletedTasksWithUser(userId, userType, containerId) {
+    try {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        // Si el usuario actual es tasker viendo perfil de cliente, obtener tareas del tasker
+        if (currentUser.tipo === 'tasker' && userType === 'cliente') {
+            const response = await fetch(`${API_BASE}/task/my-assigned-tasks`, {
+                headers: {
+                    'Authorization': `Bearer ${currentToken}`
+                }
+            });
+
+            const data = await response.json();
+            if (response.ok && data.tareas) {
+                // Filtrar tareas finalizadas con este cliente y ambas partes confirmaron pago
+                const tareasCompletadas = data.tareas.filter(t => {
+                    const estado = (t.estado || '').toUpperCase().trim();
+                    const esConEsteCliente = t.cliente_id === parseInt(userId);
+                    const ambasConfirmaron = t.pago_confirmado_cliente && t.pago_recibido_tasker;
+                    return estado === 'FINALIZADA' && esConEsteCliente && ambasConfirmaron;
+                });
+
+                if (tareasCompletadas.length > 0) {
+                    let tasksHTML = '<div class="completed-tasks-list">';
+                    tareasCompletadas.forEach(tarea => {
+                        const fecha = new Date(tarea.fecha_hora_requerida).toLocaleDateString('es-ES');
+                        tasksHTML += `
+                            <div class="completed-task-item">
+                                <div class="task-info">
+                                    <p><strong>${tarea.tipo_servicio}</strong> - ${fecha}</p>
+                                    <p class="task-description">${tarea.descripcion || 'Sin descripción'}</p>
+                                </div>
+                                <div class="task-actions">
+                                    <button class="rate-task-btn" onclick="showRatingForm(${tarea.id})">⭐ Calificar</button>
+                                </div>
+                                <div id="rating-form-${tarea.id}" class="rating-form-container" style="display: none;" onclick="event.stopPropagation()"></div>
+                            </div>
+                        `;
+                    });
+                    tasksHTML += '</div>';
+                    container.innerHTML = tasksHTML;
+                } else {
+                    container.innerHTML = '<p class="no-tasks">No hay tareas completadas con este cliente para calificar.</p>';
+                }
+            } else {
+                container.innerHTML = '<p class="error">Error al cargar tareas</p>';
+            }
+        } else {
+            // Si es cliente viendo perfil de tasker, obtener tareas del cliente
+            if (currentUser.tipo === 'cliente' && userType === 'tasker') {
+                const response = await fetch(`${API_BASE}/task/my-tasks`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const data = await response.json();
+                if (response.ok && data.tareas) {
+                    // Filtrar tareas finalizadas con este tasker y ambas partes confirmaron pago
+                    const tareasCompletadas = data.tareas.filter(t => {
+                        const estado = (t.estado || '').toUpperCase().trim();
+                        const esConEsteTasker = t.tasker_id === parseInt(userId);
+                        const ambasConfirmaron = t.pago_confirmado_cliente && t.pago_recibido_tasker;
+                        return estado === 'FINALIZADA' && esConEsteTasker && ambasConfirmaron;
+                    });
+
+                    if (tareasCompletadas.length > 0) {
+                        let tasksHTML = '<div class="completed-tasks-list">';
+                        tareasCompletadas.forEach(tarea => {
+                            const fecha = new Date(tarea.fecha_hora_requerida).toLocaleDateString('es-ES');
+                            tasksHTML += `
+                                <div class="completed-task-item">
+                                    <div class="task-info">
+                                        <p><strong>${tarea.tipo_servicio}</strong> - ${fecha}</p>
+                                        <p class="task-description">${tarea.descripcion || 'Sin descripción'}</p>
+                                    </div>
+                                    <div class="task-actions">
+                                        <button class="rate-task-btn" onclick="showRatingForm(${tarea.id})">⭐ Calificar</button>
+                                    </div>
+                                    <div id="rating-form-${tarea.id}" class="rating-form-container" style="display: none;" onclick="event.stopPropagation()"></div>
+                                </div>
+                            `;
+                        });
+                        tasksHTML += '</div>';
+                        container.innerHTML = tasksHTML;
+                    } else {
+                        container.innerHTML = '<p class="no-tasks">No hay tareas completadas con este tasker para calificar.</p>';
+                    }
+                } else {
+                    container.innerHTML = '<p class="error">Error al cargar tareas</p>';
+                }
+            } else {
+                container.innerHTML = '<p class="no-tasks">No se pueden cargar tareas para este tipo de usuario.</p>';
+            }
+        }
+    } catch (error) {
+        console.error('Error cargando tareas completadas:', error);
+        const container = document.getElementById(containerId);
+        if (container) {
+            container.innerHTML = '<p class="error">Error al cargar tareas completadas</p>';
+        }
+    }
+}
+
 // Función para cargar y mostrar calificaciones de un usuario
 async function loadUserRatings(userId, userType, containerId) {
     try {
@@ -4420,6 +4932,7 @@ async function loadUserRatings(userId, userType, containerId) {
             let ratingsHTML = '';
 
             if (cantidad > 0) {
+                // Resumen siempre visible
                 ratingsHTML += `
                     <div class="ratings-summary">
                         <div class="rating-average">
@@ -4427,8 +4940,11 @@ async function loadUserRatings(userId, userType, containerId) {
                             <span class="average-number">${promedio.toFixed(1)}</span>
                             <span class="rating-count">(${cantidad} ${cantidad === 1 ? 'calificación' : 'calificaciones'})</span>
                         </div>
+                        <button class="btn-toggle-ratings" onclick="toggleRatingsDetails('${containerId}')">
+                            <span id="ratings-toggle-text-${containerId}">📖 Ver Detalles</span>
+                        </button>
                     </div>
-                    <div class="ratings-list">
+                    <div id="ratings-details-${containerId}" class="ratings-list" style="display: none;">
                         <h4>Calificaciones recibidas:</h4>
                         ${calificaciones.map(calif => {
                             const fecha = new Date(calif.createdAt).toLocaleDateString('es-ES');
@@ -4470,6 +4986,22 @@ async function loadUserRatings(userId, userType, containerId) {
         }
     } catch (error) {
         console.error('Error cargando calificaciones:', error);
+    }
+}
+
+// Función para expandir/colapsar detalles de calificaciones
+function toggleRatingsDetails(containerId) {
+    const detailsDiv = document.getElementById(`ratings-details-${containerId}`);
+    const toggleText = document.getElementById(`ratings-toggle-text-${containerId}`);
+    
+    if (detailsDiv && toggleText) {
+        if (detailsDiv.style.display === 'none' || detailsDiv.style.display === '') {
+            detailsDiv.style.display = 'block';
+            toggleText.textContent = '📕 Ocultar Detalles';
+        } else {
+            detailsDiv.style.display = 'none';
+            toggleText.textContent = '📖 Ver Detalles';
+        }
     }
 }
 

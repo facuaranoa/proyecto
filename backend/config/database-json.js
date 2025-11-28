@@ -17,7 +17,8 @@ const FILES = {
   taskers: path.join(DATA_DIR, 'taskers.json'),
   tareas: path.join(DATA_DIR, 'tareas.json'),
   solicitudesTareas: path.join(DATA_DIR, 'solicitudesTareas.json'),
-  admins: path.join(DATA_DIR, 'admins.json')
+  admins: path.join(DATA_DIR, 'admins.json'),
+  calificaciones: path.join(DATA_DIR, 'calificaciones.json')
 };
 
 // Asegurar que el directorio existe
@@ -33,6 +34,10 @@ const ensureDataDir = async () => {
 const readFile = async (fileKey) => {
   try {
     const filePath = FILES[fileKey];
+    if (!filePath) {
+      throw new Error(`Archivo no encontrado en FILES: ${fileKey}`);
+    }
+    await ensureDataDir();
     const data = await fs.readFile(filePath, 'utf8');
     return JSON.parse(data);
   } catch (error) {
@@ -48,6 +53,10 @@ const readFile = async (fileKey) => {
 const writeFile = async (fileKey, data) => {
   try {
     const filePath = FILES[fileKey];
+    if (!filePath) {
+      throw new Error(`Archivo no encontrado en FILES: ${fileKey}`);
+    }
+    await ensureDataDir();
     await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
     return true;
   } catch (error) {

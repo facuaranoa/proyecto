@@ -31,3 +31,4 @@ router.get('/profile/:id', authenticateToken, getClienteProfile);
 
 module.exports = router;
 
+
