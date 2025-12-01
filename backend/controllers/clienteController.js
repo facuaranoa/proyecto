@@ -103,20 +103,79 @@ const searchClientes = async (req, res) => {
       );
     }
 
-    // Retornar clientes sin información sensible
-    const clientesResponse = clientesFiltrados.map(c => ({
-      id: c.id,
-      nombre: c.nombre,
-      apellido: c.apellido,
-      telefono: c.telefono,
-      ubicacion_default: c.ubicacion_default,
-      createdAt: c.createdAt
-    }));
+    // Obtener calificaciones para cada cliente
+    let clientesConCalificaciones;
+    try {
+      const Calificacion = require('../models/Calificacion');
+      const Tarea = require('../models/Tarea');
+      
+      // Obtener todas las calificaciones y tareas una sola vez
+      const todasCalificaciones = await Calificacion.findAll();
+      const todasLasTareas = await Tarea.findAll();
+      
+      clientesConCalificaciones = clientesFiltrados.map((c) => {
+        try {
+          // Obtener todas las tareas de este cliente
+          const tareasCliente = todasLasTareas.filter(t => t.cliente_id === c.id);
+          
+          // Obtener calificaciones de estas tareas donde el cliente fue calificado
+          const calificacionesCliente = todasCalificaciones.filter(calif => {
+            return tareasCliente.some(tarea => tarea.id === calif.tarea_id) && 
+                   calif.calificado_tipo === 'cliente';
+          });
+          
+          // Calcular promedio
+          const promedio = calificacionesCliente.length > 0
+            ? calificacionesCliente.reduce((sum, calif) => sum + (parseInt(calif.estrellas) || 0), 0) / calificacionesCliente.length
+            : 0;
+
+          return {
+            id: c.id,
+            nombre: c.nombre,
+            apellido: c.apellido,
+            telefono: c.telefono,
+            email: c.email,
+            ubicacion_default: c.ubicacion_default,
+            calificacion_promedio: parseFloat(promedio.toFixed(2)),
+            total_calificaciones: calificacionesCliente.length,
+            createdAt: c.createdAt
+          };
+        } catch (error) {
+          console.error(`Error procesando cliente ${c.id}:`, error);
+          // Retornar cliente sin calificaciones en caso de error
+          return {
+            id: c.id,
+            nombre: c.nombre,
+            apellido: c.apellido,
+            telefono: c.telefono,
+            email: c.email,
+            ubicacion_default: c.ubicacion_default,
+            calificacion_promedio: 0,
+            total_calificaciones: 0,
+            createdAt: c.createdAt
+          };
+        }
+      });
+    } catch (error) {
+      console.error('Error obteniendo calificaciones:', error);
+      // Si hay error, retornar clientes sin calificaciones
+      clientesConCalificaciones = clientesFiltrados.map(c => ({
+        id: c.id,
+        nombre: c.nombre,
+        apellido: c.apellido,
+        telefono: c.telefono,
+        email: c.email,
+        ubicacion_default: c.ubicacion_default,
+        calificacion_promedio: 0,
+        total_calificaciones: 0,
+        createdAt: c.createdAt
+      }));
+    }
 
     res.json({
       message: 'Clientes obtenidos exitosamente',
-      clientes: clientesResponse,
-      total: clientesResponse.length
+      clientes: clientesConCalificaciones,
+      total: clientesConCalificaciones.length
     });
   } catch (error) {
     console.error('Error al buscar clientes:', error);
@@ -172,5 +231,6 @@ module.exports = {
   searchClientes,
   getClienteProfile
 };
+
 
 

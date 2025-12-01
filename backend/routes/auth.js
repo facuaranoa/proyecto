@@ -6,7 +6,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { registerCliente, registerTasker, login } = require('../controllers/authController');
+const { registerCliente, registerTasker, login, forgotPassword, resetPassword } = require('../controllers/authController');
 const { upload } = require('../utils/upload');
 
 /**
@@ -37,6 +37,18 @@ router.post('/register/tasker',
  * Login para cliente o tasker
  */
 router.post('/login', login);
+
+/**
+ * POST /api/auth/forgot-password
+ * Solicitar recuperación de contraseña
+ */
+router.post('/forgot-password', forgotPassword);
+
+/**
+ * POST /api/auth/reset-password
+ * Resetear contraseña con token
+ */
+router.post('/reset-password', resetPassword);
 
 module.exports = router;
 

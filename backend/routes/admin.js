@@ -6,7 +6,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { listTaskers, verifyTasker, getStats, listClientes, listTareas, blockUser } = require('../controllers/adminController');
+const { listTaskers, verifyTasker, getStats, listClientes, listTareas, blockUser, verifyCliente, verifyTarea, getUserDetails } = require('../controllers/adminController');
 const { authenticateToken, authenticateAdmin } = require('../middleware/auth');
 
 /**
@@ -42,11 +42,32 @@ router.get('/clientes', authenticateToken, authenticateAdmin, listClientes);
 router.get('/tareas', authenticateToken, authenticateAdmin, listTareas);
 
 /**
+ * GET /api/admin/user/details/:id?tipo=tasker|cliente
+ * Obtener detalles completos de un usuario (perfil, tareas, calificaciones)
+ * IMPORTANTE: Esta ruta debe ir ANTES de /user/block/:id para evitar conflictos
+ */
+router.get('/user/details/:id', authenticateToken, authenticateAdmin, getUserDetails);
+
+/**
  * PUT /api/admin/user/block/:id
  * Bloquear/desbloquear usuario
  * Body: { bloqueado: true/false, tipo: 'cliente'|'tasker' }
  */
 router.put('/user/block/:id', authenticateToken, authenticateAdmin, blockUser);
+
+/**
+ * PUT /api/admin/cliente/verify/:id
+ * Verificar/aprobar cliente (requiere autenticación de administrador)
+ * Body: { aprobado_admin: true/false }
+ */
+router.put('/cliente/verify/:id', authenticateToken, authenticateAdmin, verifyCliente);
+
+/**
+ * PUT /api/admin/tarea/verify/:id
+ * Verificar/aprobar tarea (requiere autenticación de administrador)
+ * Body: { aprobado_admin: true/false }
+ */
+router.put('/tarea/verify/:id', authenticateToken, authenticateAdmin, verifyTarea);
 
 module.exports = router;
 

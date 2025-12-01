@@ -8,7 +8,9 @@ const jwt = require('jsonwebtoken');
 const UsuarioCliente = require('../models/UsuarioCliente');
 const Tasker = require('../models/Tasker');
 const Admin = require('../models/Admin');
+const PasswordResetToken = require('../models/PasswordResetToken.json');
 const { getFileUrl } = require('../utils/upload');
+const bcrypt = require('bcryptjs');
 
 /**
  * Genera un token JWT para un usuario
@@ -296,10 +298,180 @@ const login = async (req, res) => {
   }
 };
 
+/**
+ * Solicitar recuperación de contraseña
+ * POST /api/auth/forgot-password
+ */
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Validaciones básicas
+    if (!email) {
+      return res.status(400).json({
+        error: 'Email requerido',
+        message: 'Debes proporcionar un email'
+      });
+    }
+
+    // Validar formato de email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        error: 'Email inválido',
+        message: 'El formato del email no es válido'
+      });
+    }
+
+    // Buscar usuario (cliente o tasker)
+    let usuario = await UsuarioCliente.findOne({ where: { email } });
+    let tipo = 'cliente';
+
+    if (!usuario) {
+      usuario = await Tasker.findOne({ where: { email } });
+      tipo = 'tasker';
+    }
+
+    // Por seguridad, siempre retornamos éxito aunque el email no exista
+    // Esto previene que atacantes descubran qué emails están registrados
+    if (!usuario) {
+      return res.json({
+        message: 'Si el email existe, recibirás un enlace de recuperación'
+      });
+    }
+
+    // Invalidar tokens anteriores para este email
+    await PasswordResetToken.invalidateAllForEmail(email);
+
+    // Generar nuevo token
+    const token = PasswordResetToken.generateToken();
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 1); // Expira en 1 hora
+
+    const resetToken = new PasswordResetToken({
+      email: email,
+      token: token,
+      user_id: usuario.id,
+      user_type: tipo,
+      expires_at: expiresAt.toISOString(),
+      used: false
+    });
+
+    await resetToken.save();
+
+    // En producción, aquí enviarías un email con el link
+    // Por ahora, retornamos el token en la respuesta (solo para desarrollo)
+    // En producción, esto NO debe hacerse
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:8080'}/reset-password?token=${token}`;
+
+    console.log(`🔐 Link de recuperación para ${email}: ${resetLink}`);
+
+    // En producción, usarías un servicio de email como nodemailer
+    // await sendPasswordResetEmail(email, resetLink);
+
+    res.json({
+      message: 'Si el email existe, recibirás un enlace de recuperación',
+      // Solo en desarrollo - REMOVER en producción
+      ...(process.env.NODE_ENV !== 'production' && {
+        resetLink: resetLink,
+        token: token
+      })
+    });
+  } catch (error) {
+    console.error('Error en forgot-password:', error);
+    res.status(500).json({
+      error: 'Error al procesar solicitud',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Resetear contraseña con token
+ * POST /api/auth/reset-password
+ */
+const resetPassword = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    // Validaciones básicas
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        error: 'Campos requeridos faltantes',
+        message: 'Token y nueva contraseña son obligatorios'
+      });
+    }
+
+    // Validar longitud de password
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        error: 'Password muy corto',
+        message: 'La contraseña debe tener al menos 6 caracteres'
+      });
+    }
+
+    // Buscar token
+    const resetToken = await PasswordResetToken.findByToken(token);
+    if (!resetToken) {
+      return res.status(400).json({
+        error: 'Token inválido',
+        message: 'El token de recuperación no es válido o ha expirado'
+      });
+    }
+
+    // Verificar si el token es válido
+    if (!resetToken.isValid()) {
+      return res.status(400).json({
+        error: 'Token inválido o expirado',
+        message: 'El token de recuperación ha expirado o ya fue usado'
+      });
+    }
+
+    // Buscar usuario según el tipo
+    let usuario;
+    if (resetToken.user_type === 'cliente') {
+      usuario = await UsuarioCliente.findByPk(resetToken.user_id);
+    } else if (resetToken.user_type === 'tasker') {
+      usuario = await Tasker.findByPk(resetToken.user_id);
+    } else {
+      return res.status(400).json({
+        error: 'Tipo de usuario inválido',
+        message: 'El token no está asociado a un tipo de usuario válido'
+      });
+    }
+
+    if (!usuario) {
+      return res.status(404).json({
+        error: 'Usuario no encontrado',
+        message: 'El usuario asociado al token no existe'
+      });
+    }
+
+    // Actualizar contraseña (el modelo la encripta automáticamente)
+    await usuario.update({ password_hash: newPassword });
+
+    // Marcar token como usado
+    await resetToken.markAsUsed();
+
+    res.json({
+      message: 'Contraseña restablecida exitosamente',
+      success: true
+    });
+  } catch (error) {
+    console.error('Error en reset-password:', error);
+    res.status(500).json({
+      error: 'Error al restablecer contraseña',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   registerCliente,
   registerTasker,
-  login
+  login,
+  forgotPassword,
+  resetPassword
 };
 
 

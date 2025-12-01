@@ -19,6 +19,8 @@ class UsuarioCliente {
     this.apellido = data.apellido;
     this.telefono = data.telefono;
     this.ubicacion_default = data.ubicacion_default || null;
+    this.aprobado_admin = data.aprobado_admin !== undefined ? data.aprobado_admin : true; // Por defecto aprobado
+    this.bloqueado = data.bloqueado !== undefined ? data.bloqueado : false; // Estado de bloqueo
     this.createdAt = data.createdAt || new Date().toISOString();
     this.updatedAt = data.updatedAt || new Date().toISOString();
   }
@@ -71,6 +73,8 @@ class UsuarioCliente {
       apellido: data.apellido,
       telefono: data.telefono,
       ubicacion_default: data.ubicacion_default || null,
+      aprobado_admin: data.aprobado_admin !== undefined ? data.aprobado_admin : true, // Por defecto aprobado
+      bloqueado: data.bloqueado !== undefined ? data.bloqueado : false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

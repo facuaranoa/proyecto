@@ -150,26 +150,97 @@ const searchTaskers = async (req, res) => {
       );
     }
 
-    // Retornar taskers sin información sensible
-    const taskersResponse = taskersFiltrados.map(t => ({
-      id: t.id,
-      nombre: t.nombre,
-      apellido: t.apellido,
-      telefono: t.telefono,
-      disponible: t.disponible,
-      skills: t.skills || [],
-      licencias: t.licencias || [],
-      categoria_principal: t.categoria_principal,
-      especialidades: t.especialidades || [],
-      descripcion_profesional: t.descripcion_profesional,
-      aprobado_admin: t.aprobado_admin,
-      createdAt: t.createdAt
-    }));
+    // Obtener calificaciones para cada tasker
+    let taskersConCalificaciones;
+    try {
+      const Calificacion = require('../models/Calificacion');
+      const Tarea = require('../models/Tarea');
+      
+      // Obtener todas las calificaciones y tareas una sola vez
+      const todasCalificaciones = await Calificacion.findAll();
+      const todasLasTareas = await Tarea.findAll();
+      
+      taskersConCalificaciones = taskersFiltrados.map((t) => {
+        try {
+          // Obtener todas las tareas de este tasker
+          const tareasTasker = todasLasTareas.filter(tarea => tarea.tasker_id === t.id);
+          
+          // Obtener calificaciones de estas tareas donde el tasker fue calificado
+          const calificacionesTasker = todasCalificaciones.filter(c => {
+            return tareasTasker.some(tarea => tarea.id === c.tarea_id) && 
+                   c.calificado_tipo === 'tasker';
+          });
+          
+          // Calcular promedio
+          const promedio = calificacionesTasker.length > 0
+            ? calificacionesTasker.reduce((sum, c) => sum + (parseInt(c.estrellas) || 0), 0) / calificacionesTasker.length
+            : 0;
+
+          return {
+            id: t.id,
+            nombre: t.nombre,
+            apellido: t.apellido,
+            telefono: t.telefono,
+            email: t.email,
+            disponible: t.disponible,
+            skills: t.skills || [],
+            licencias: t.licencias || [],
+            categoria_principal: t.categoria_principal,
+            especialidades: t.especialidades || [],
+            descripcion_profesional: t.descripcion_profesional,
+            aprobado_admin: t.aprobado_admin,
+            calificacion_promedio: parseFloat(promedio.toFixed(2)),
+            total_calificaciones: calificacionesTasker.length,
+            createdAt: t.createdAt
+          };
+        } catch (error) {
+          console.error(`Error procesando tasker ${t.id}:`, error);
+          // Retornar tasker sin calificaciones en caso de error
+          return {
+            id: t.id,
+            nombre: t.nombre,
+            apellido: t.apellido,
+            telefono: t.telefono,
+            email: t.email,
+            disponible: t.disponible,
+            skills: t.skills || [],
+            licencias: t.licencias || [],
+            categoria_principal: t.categoria_principal,
+            especialidades: t.especialidades || [],
+            descripcion_profesional: t.descripcion_profesional,
+            aprobado_admin: t.aprobado_admin,
+            calificacion_promedio: 0,
+            total_calificaciones: 0,
+            createdAt: t.createdAt
+          };
+        }
+      });
+    } catch (error) {
+      console.error('Error obteniendo calificaciones:', error);
+      // Si hay error, retornar taskers sin calificaciones
+      taskersConCalificaciones = taskersFiltrados.map(t => ({
+        id: t.id,
+        nombre: t.nombre,
+        apellido: t.apellido,
+        telefono: t.telefono,
+        email: t.email,
+        disponible: t.disponible,
+        skills: t.skills || [],
+        licencias: t.licencias || [],
+        categoria_principal: t.categoria_principal,
+        especialidades: t.especialidades || [],
+        descripcion_profesional: t.descripcion_profesional,
+        aprobado_admin: t.aprobado_admin,
+        calificacion_promedio: 0,
+        total_calificaciones: 0,
+        createdAt: t.createdAt
+      }));
+    }
 
     res.json({
       message: 'Taskers obtenidos exitosamente',
-      taskers: taskersResponse,
-      total: taskersResponse.length
+      taskers: taskersConCalificaciones,
+      total: taskersConCalificaciones.length
     });
   } catch (error) {
     console.error('Error al buscar taskers:', error);

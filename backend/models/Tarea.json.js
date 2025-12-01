@@ -31,6 +31,7 @@ class Tarea {
     this.auto_confirmado = data.auto_confirmado || false; // Si fue auto-confirmado después de 48h
     this.pago_recibido_tasker = data.pago_recibido_tasker || false; // Si el tasker confirmó que recibió el pago
     this.fecha_confirmacion_recepcion_pago = data.fecha_confirmacion_recepcion_pago || null; // Cuándo el tasker confirmó que recibió el pago
+    this.aprobado_admin = data.aprobado_admin !== undefined ? data.aprobado_admin : true; // Por defecto aprobado
     this.createdAt = data.createdAt || new Date().toISOString();
     this.updatedAt = data.updatedAt || new Date().toISOString();
     
@@ -302,6 +303,14 @@ class Tarea {
       monto_total_acordado: data.monto_total_acordado,
       comision_app: data.comision_app || 0.20,
       estado: data.estado || 'PENDIENTE',
+      tiempo_respuesta_solicitud: data.tiempo_respuesta_solicitud || null,
+      fecha_inicio_trabajo: data.fecha_inicio_trabajo || null,
+      fecha_finalizacion_trabajo: data.fecha_finalizacion_trabajo || null,
+      fecha_confirmacion_pago: data.fecha_confirmacion_pago || null,
+      auto_confirmado: data.auto_confirmado || false,
+      pago_recibido_tasker: data.pago_recibido_tasker || false,
+      fecha_confirmacion_recepcion_pago: data.fecha_confirmacion_recepcion_pago || null,
+      aprobado_admin: data.aprobado_admin !== undefined ? data.aprobado_admin : true, // Por defecto aprobado
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

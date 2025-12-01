@@ -33,6 +33,7 @@ class Tasker {
     this.especialidades = data.especialidades || []; // Array de especialidades dentro de OFICIOS (ej: ["Plomería", "Albañilería", "Electricista", "Gasista"])
     this.descripcion_profesional = data.descripcion_profesional || null; // Descripción del trabajo/profesión
     this.cvu_cbu = data.cvu_cbu || null; // CVU/CBU para recibir pagos
+    this.bloqueado = data.bloqueado !== undefined ? data.bloqueado : false; // Estado de bloqueo
     this.createdAt = data.createdAt || new Date().toISOString();
     this.updatedAt = data.updatedAt || new Date().toISOString();
   }
@@ -107,6 +108,7 @@ class Tasker {
       especialidades: data.especialidades || [],
       descripcion_profesional: data.descripcion_profesional || null,
       cvu_cbu: data.cvu_cbu || null,
+      bloqueado: data.bloqueado !== undefined ? data.bloqueado : false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

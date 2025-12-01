@@ -18,7 +18,8 @@ const FILES = {
   tareas: path.join(DATA_DIR, 'tareas.json'),
   solicitudesTareas: path.join(DATA_DIR, 'solicitudesTareas.json'),
   admins: path.join(DATA_DIR, 'admins.json'),
-  calificaciones: path.join(DATA_DIR, 'calificaciones.json')
+  calificaciones: path.join(DATA_DIR, 'calificaciones.json'),
+  passwordResetTokens: path.join(DATA_DIR, 'passwordResetTokens.json')
 };
 
 // Asegurar que el directorio existe

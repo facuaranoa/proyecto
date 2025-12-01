@@ -124,7 +124,47 @@
                     <input type="password" id="loginPassword" placeholder="Contraseña" required>
                     <button type="submit">Iniciar Sesión</button>
                 </form>
+                <p style="text-align: center; margin-top: 15px;">
+                    <a href="#" onclick="showForgotPassword(event)" style="color: #6366f1; text-decoration: none;">¿Olvidaste tu contraseña?</a>
+                </p>
                 <div id="loginResult"></div>
+            </div>
+        </div>
+
+        <!-- Sección de recuperación de contraseña -->
+        <div id="forgotPassword" class="tab-content" style="display: none;">
+            <h2>🔐 Recuperar Contraseña</h2>
+            <div class="form-container">
+                <p style="margin-bottom: 20px; color: #6b7280;">
+                    Ingresa tu email y te enviaremos un enlace para restablecer tu contraseña.
+                </p>
+                <form id="forgotPasswordForm">
+                    <input type="email" id="forgotPasswordEmail" placeholder="Email" required>
+                    <button type="submit">Enviar enlace de recuperación</button>
+                </form>
+                <p style="text-align: center; margin-top: 15px;">
+                    <a href="#" onclick="showLogin(event)" style="color: #6366f1; text-decoration: none;">← Volver al login</a>
+                </p>
+                <div id="forgotPasswordResult"></div>
+            </div>
+        </div>
+
+        <!-- Sección de resetear contraseña -->
+        <div id="resetPassword" class="tab-content" style="display: none;">
+            <h2>🔑 Restablecer Contraseña</h2>
+            <div class="form-container">
+                <p style="margin-bottom: 20px; color: #6b7280;">
+                    Ingresa tu nueva contraseña. Debe tener al menos 6 caracteres.
+                </p>
+                <form id="resetPasswordForm">
+                    <input type="password" id="newPassword" placeholder="Nueva contraseña" required minlength="6">
+                    <input type="password" id="confirmPassword" placeholder="Confirmar contraseña" required minlength="6">
+                    <button type="submit">Restablecer contraseña</button>
+                </form>
+                <p style="text-align: center; margin-top: 15px;">
+                    <a href="#" onclick="showLogin(event)" style="color: #6366f1; text-decoration: none;">← Volver al login</a>
+                </p>
+                <div id="resetPasswordResult"></div>
             </div>
         </div>
 

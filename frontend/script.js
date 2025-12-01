@@ -90,6 +90,10 @@ function showTab(tabName) {
     // Ocultar todas las pestañas
     document.querySelectorAll('.tab-content').forEach(tab => {
         tab.classList.remove('active');
+        // Si tiene display: none inline, mantenerlo, sino ocultar
+        if (!tab.style.display || tab.style.display !== 'none') {
+            tab.style.display = 'none';
+        }
     });
 
     // Desactivar todos los botones
@@ -101,6 +105,7 @@ function showTab(tabName) {
     const tabElement = document.getElementById(tabName);
     if (tabElement) {
         tabElement.classList.add('active');
+        tabElement.style.display = 'block';
         
         // Si es el panel admin, cargar contenido automáticamente
         if (tabName === 'admin' && currentUser && currentUser.tipo === 'admin') {
@@ -347,6 +352,196 @@ async function registerTasker(event) {
 }
 
 // Función para login
+// Función para mostrar formulario de recuperación de contraseña
+function showForgotPassword(event) {
+    if (event) event.preventDefault();
+    
+    // Ocultar todas las pestañas
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+        tab.style.display = 'none';
+    });
+    
+    // Mostrar la pestaña de recuperación de contraseña
+    const forgotPasswordTab = document.getElementById('forgotPassword');
+    if (forgotPasswordTab) {
+        forgotPasswordTab.classList.add('active');
+        forgotPasswordTab.style.display = 'block';
+    }
+    
+    // Desactivar todos los botones de tab
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+}
+
+// Función para volver al login
+function showLogin(event) {
+    if (event) event.preventDefault();
+    
+    // Ocultar todas las pestañas
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+        tab.style.display = 'none';
+    });
+    
+    // Mostrar la pestaña de login
+    const loginTab = document.getElementById('login');
+    if (loginTab) {
+        loginTab.classList.add('active');
+        loginTab.style.display = 'block';
+    }
+    
+    // Activar el botón de login
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+        const onclick = btn.getAttribute('onclick');
+        if (onclick && onclick.includes("showTab('login')")) {
+            btn.classList.add('active');
+        }
+    });
+}
+
+// Función para solicitar recuperación de contraseña
+async function forgotPassword(event) {
+    if (!event) {
+        console.error('forgotPassword called without event parameter');
+        return;
+    }
+    event.preventDefault();
+
+    const email = document.getElementById('forgotPasswordEmail').value;
+    const resultDiv = document.getElementById('forgotPasswordResult');
+
+    if (!email) {
+        showMessage('❌ Por favor ingresa tu email', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/auth/forgot-password`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            // En desarrollo, mostrar el link directamente
+            if (data.resetLink) {
+                resultDiv.innerHTML = `
+                    <div style="background: #d1fae5; padding: 15px; border-radius: 8px; margin-top: 15px;">
+                        <p style="color: #065f46; margin-bottom: 10px;">✅ Enlace de recuperación generado:</p>
+                        <p style="word-break: break-all; color: #047857; font-size: 12px;">${data.resetLink}</p>
+                        <p style="color: #065f46; margin-top: 10px; font-size: 14px;">
+                            <strong>Nota:</strong> En producción, este enlace se enviaría por email.
+                        </p>
+                    </div>
+                `;
+            } else {
+                resultDiv.innerHTML = `
+                    <div style="background: #d1fae5; padding: 15px; border-radius: 8px; margin-top: 15px;">
+                        <p style="color: #065f46;">✅ Si el email existe, recibirás un enlace de recuperación.</p>
+                    </div>
+                `;
+            }
+            showMessage('✅ Solicitud procesada. Revisa tu email (o la consola en desarrollo).', 'success');
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al procesar solicitud'}`, 'error');
+            resultDiv.innerHTML = '';
+        }
+    } catch (error) {
+        console.error('Error en forgot-password:', error);
+        showMessage(`❌ Error de conexión: ${error.message}`, 'error');
+        resultDiv.innerHTML = '';
+    }
+}
+
+// Función para resetear contraseña con token
+async function resetPassword(event) {
+    if (!event) {
+        console.error('resetPassword called without event parameter');
+        return;
+    }
+    event.preventDefault();
+
+    // Obtener token de la URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    if (!token) {
+        showMessage('❌ Token no encontrado en la URL', 'error');
+        return;
+    }
+
+    const newPassword = document.getElementById('newPassword').value;
+    const confirmPassword = document.getElementById('confirmPassword').value;
+    const resultDiv = document.getElementById('resetPasswordResult');
+
+    if (!newPassword || !confirmPassword) {
+        showMessage('❌ Por favor completa todos los campos', 'error');
+        return;
+    }
+
+    if (newPassword.length < 6) {
+        showMessage('❌ La contraseña debe tener al menos 6 caracteres', 'error');
+        return;
+    }
+
+    if (newPassword !== confirmPassword) {
+        showMessage('❌ Las contraseñas no coinciden', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/auth/reset-password`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ token, newPassword })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            resultDiv.innerHTML = `
+                <div style="background: #d1fae5; padding: 15px; border-radius: 8px; margin-top: 15px;">
+                    <p style="color: #065f46;">✅ Contraseña restablecida exitosamente.</p>
+                    <p style="color: #047857; margin-top: 10px;">Redirigiendo al login...</p>
+                </div>
+            `;
+            showMessage('✅ Contraseña restablecida exitosamente', 'success');
+            
+            // Limpiar URL y redirigir al login después de 2 segundos
+            setTimeout(() => {
+                window.history.replaceState({}, document.title, window.location.pathname);
+                showTab('login');
+                document.getElementById('resetPasswordForm').reset();
+            }, 2000);
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al restablecer contraseña'}`, 'error');
+            resultDiv.innerHTML = '';
+        }
+    } catch (error) {
+        console.error('Error en reset-password:', error);
+        showMessage(`❌ Error de conexión: ${error.message}`, 'error');
+        resultDiv.innerHTML = '';
+    }
+}
+
+// Verificar si hay token en la URL al cargar la página
+window.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (token) {
+        showTab('resetPassword');
+    }
+});
+
 async function login(event) {
     if (!event) {
         console.error('login called without event parameter');
@@ -475,6 +670,83 @@ async function createTask(event) {
 
 // ========== FUNCIONES DE ADMINISTRACIÓN ==========
 
+// Variables globales para almacenar datos actuales (para exportación)
+let currentAdminTaskers = [];
+let currentAdminClientes = [];
+let currentAdminTareas = [];
+let allAdminTaskers = []; // Datos completos sin filtrar
+let allAdminClientes = []; // Datos completos sin filtrar
+let allAdminTareas = []; // Datos completos sin filtrar
+let currentAdminFilter = {
+    taskers: 'pending',
+    clientes: 'all',
+    tareas: 'all'
+};
+
+// Funciones de exportación
+function exportToCSV(data, filename) {
+    if (!data || data.length === 0) {
+        showMessage('❌ No hay datos para exportar', 'error');
+        return;
+    }
+
+    // Obtener las claves del primer objeto
+    const headers = Object.keys(data[0]);
+    
+    // Crear fila de encabezados
+    const csvHeaders = headers.join(',');
+    
+    // Crear filas de datos
+    const csvRows = data.map(row => {
+        return headers.map(header => {
+            const value = row[header];
+            // Manejar valores que contienen comas, comillas o saltos de línea
+            if (value === null || value === undefined) return '';
+            const stringValue = String(value);
+            if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+                return `"${stringValue.replace(/"/g, '""')}"`;
+            }
+            return stringValue;
+        }).join(',');
+    });
+    
+    // Combinar todo
+    const csvContent = [csvHeaders, ...csvRows].join('\n');
+    
+    // Crear blob y descargar
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showMessage('✅ Archivo CSV descargado exitosamente', 'success');
+}
+
+function exportToJSON(data, filename) {
+    if (!data || data.length === 0) {
+        showMessage('❌ No hay datos para exportar', 'error');
+        return;
+    }
+
+    const jsonContent = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonContent], { type: 'application/json' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.json`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showMessage('✅ Archivo JSON descargado exitosamente', 'success');
+}
+
 // Función para mostrar el contenido del panel admin
 function showAdminContent() {
     const adminContent = document.getElementById('adminContent');
@@ -510,10 +782,26 @@ function showAdminContent() {
             <div id="admin-tab-content-taskers" class="admin-tab-content">
                 <div class="admin-section-header">
                     <h3>👷 Gestión de Taskers</h3>
-                    <div class="admin-filters">
-                        <button class="btn-secondary" onclick="loadAdminTaskers('all')">Todos</button>
-                        <button class="btn-secondary" onclick="loadAdminTaskers('pending')">Pendientes</button>
-                        <button class="btn-secondary" onclick="loadAdminTaskers('approved')">Aprobados</button>
+                    <div class="admin-actions">
+                        <div class="admin-search-box">
+                            <input type="text" id="searchTaskers" class="search-input" placeholder="🔍 Buscar por nombre, email, teléfono..." onkeyup="filterTaskers()" oninput="filterTaskers()">
+                            <select id="sortTaskers" class="sort-select" onchange="filterTaskers()">
+                                <option value="name-asc">Ordenar: Nombre A-Z</option>
+                                <option value="name-desc">Ordenar: Nombre Z-A</option>
+                                <option value="date-asc">Ordenar: Más antiguos</option>
+                                <option value="date-desc">Ordenar: Más recientes</option>
+                            </select>
+                        </div>
+                        <div class="admin-filters">
+                            <button class="btn-filter ${currentAdminFilter.taskers === 'all' ? 'active' : ''}" onclick="loadAdminTaskers('all')">Todos</button>
+                            <button class="btn-filter ${currentAdminFilter.taskers === 'pending' ? 'active' : ''}" onclick="loadAdminTaskers('pending')">Pendientes</button>
+                            <button class="btn-filter ${currentAdminFilter.taskers === 'rejected' ? 'active' : ''}" onclick="loadAdminTaskers('rejected')">Rechazados</button>
+                            <button class="btn-filter ${currentAdminFilter.taskers === 'approved' ? 'active' : ''}" onclick="loadAdminTaskers('approved')">Aprobados</button>
+                        </div>
+                        <div class="admin-export-buttons">
+                            <button class="btn-export" onclick="exportTaskers('csv')" title="Descargar CSV">📥 CSV</button>
+                            <button class="btn-export" onclick="exportTaskers('json')" title="Descargar JSON">📥 JSON</button>
+                        </div>
                     </div>
                 </div>
                 <div id="adminTaskersList" class="admin-list-container">
@@ -523,7 +811,30 @@ function showAdminContent() {
 
             <!-- CONTENIDO: CLIENTES -->
             <div id="admin-tab-content-clientes" class="admin-tab-content">
-                <h3>👥 Gestión de Clientes</h3>
+                <div class="admin-section-header">
+                    <h3>👥 Gestión de Clientes</h3>
+                    <div class="admin-actions">
+                        <div class="admin-search-box">
+                            <input type="text" id="searchClientes" class="search-input" placeholder="🔍 Buscar por nombre, email, teléfono..." onkeyup="filterClientes()" oninput="filterClientes()">
+                            <select id="sortClientes" class="sort-select" onchange="filterClientes()">
+                                <option value="name-asc">Ordenar: Nombre A-Z</option>
+                                <option value="name-desc">Ordenar: Nombre Z-A</option>
+                                <option value="date-asc">Ordenar: Más antiguos</option>
+                                <option value="date-desc">Ordenar: Más recientes</option>
+                            </select>
+                        </div>
+                        <div class="admin-filters">
+                            <button class="btn-filter ${currentAdminFilter.clientes === 'all' ? 'active' : ''}" onclick="loadAdminClientes('all')">Todos</button>
+                            <button class="btn-filter ${currentAdminFilter.clientes === 'pending' ? 'active' : ''}" onclick="loadAdminClientes('pending')">Pendientes</button>
+                            <button class="btn-filter ${currentAdminFilter.clientes === 'rejected' ? 'active' : ''}" onclick="loadAdminClientes('rejected')">Rechazados</button>
+                            <button class="btn-filter ${currentAdminFilter.clientes === 'approved' ? 'active' : ''}" onclick="loadAdminClientes('approved')">Aprobados</button>
+                        </div>
+                        <div class="admin-export-buttons">
+                            <button class="btn-export" onclick="exportClientes('csv')" title="Descargar CSV">📥 CSV</button>
+                            <button class="btn-export" onclick="exportClientes('json')" title="Descargar JSON">📥 JSON</button>
+                        </div>
+                    </div>
+                </div>
                 <div id="adminClientesList" class="admin-list-container">
                     <p>Cargando clientes...</p>
                 </div>
@@ -533,16 +844,36 @@ function showAdminContent() {
             <div id="admin-tab-content-tareas" class="admin-tab-content">
                 <div class="admin-section-header">
                     <h3>📋 Gestión de Tareas</h3>
-                    <div class="admin-filters">
-                        <select id="adminTareasFilter" onchange="loadAdminTareas()">
-                            <option value="all">Todas</option>
-                            <option value="PENDIENTE">Pendientes</option>
-                            <option value="ASIGNADA">Asignadas</option>
-                            <option value="EN_PROCESO">En Proceso</option>
-                            <option value="PENDIENTE_PAGO">Pendiente Pago</option>
-                            <option value="FINALIZADA">Finalizadas</option>
-                            <option value="CANCELADA">Canceladas</option>
-                        </select>
+                    <div class="admin-actions">
+                        <div class="admin-search-box">
+                            <input type="text" id="searchTareas" class="search-input" placeholder="🔍 Buscar por tipo, descripción, cliente, tasker..." onkeyup="filterTareas()" oninput="filterTareas()">
+                            <input type="date" id="filterFechaDesde" class="filter-date" placeholder="Desde" onchange="filterTareas()">
+                            <input type="date" id="filterFechaHasta" class="filter-date" placeholder="Hasta" onchange="filterTareas()">
+                            <input type="number" id="filterMontoMin" class="filter-number" placeholder="Monto min" onchange="filterTareas()" min="0" step="0.01">
+                            <input type="number" id="filterMontoMax" class="filter-number" placeholder="Monto max" onchange="filterTareas()" min="0" step="0.01">
+                            <select id="sortTareas" class="sort-select" onchange="filterTareas()">
+                                <option value="date-desc">Ordenar: Más recientes</option>
+                                <option value="date-asc">Ordenar: Más antiguos</option>
+                                <option value="monto-desc">Ordenar: Mayor monto</option>
+                                <option value="monto-asc">Ordenar: Menor monto</option>
+                                <option value="estado-asc">Ordenar: Por estado</option>
+                            </select>
+                        </div>
+                        <div class="admin-filters">
+                            <select id="adminTareasFilter" onchange="filterTareas()" class="filter-select">
+                                <option value="all">Todas</option>
+                                <option value="PENDIENTE">Pendientes</option>
+                                <option value="ASIGNADA">Asignadas</option>
+                                <option value="EN_PROCESO">En Proceso</option>
+                                <option value="PENDIENTE_PAGO">Pendiente Pago</option>
+                                <option value="FINALIZADA">Finalizadas</option>
+                                <option value="CANCELADA">Canceladas</option>
+                            </select>
+                        </div>
+                        <div class="admin-export-buttons">
+                            <button class="btn-export" onclick="exportTareas('csv')" title="Descargar CSV">📥 CSV</button>
+                            <button class="btn-export" onclick="exportTareas('json')" title="Descargar JSON">📥 JSON</button>
+                        </div>
                     </div>
                 </div>
                 <div id="adminTareasList" class="admin-list-container">
@@ -582,10 +913,10 @@ function showAdminTab(tabName) {
             loadAdminStats();
             break;
         case 'taskers':
-            loadAdminTaskers('pending');
+            loadAdminTaskers(currentAdminFilter.taskers || 'pending');
             break;
         case 'clientes':
-            loadAdminClientes();
+            loadAdminClientes(currentAdminFilter.clientes || 'all');
             break;
         case 'tareas':
             loadAdminTareas();
@@ -682,9 +1013,23 @@ async function loadAdminTaskers(filter = 'pending') {
         const listContainer = document.getElementById('adminTaskersList');
         if (!listContainer) return;
 
+        currentAdminFilter.taskers = filter;
+
+        // Actualizar botones de filtro activos
+        document.querySelectorAll('#admin-tab-content-taskers .btn-filter').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        const filterButtons = document.querySelectorAll('#admin-tab-content-taskers .btn-filter');
+        if (filter === 'all' && filterButtons[0]) filterButtons[0].classList.add('active');
+        if (filter === 'pending' && filterButtons[1]) filterButtons[1].classList.add('active');
+        if (filter === 'rejected' && filterButtons[2]) filterButtons[2].classList.add('active');
+        if (filter === 'approved' && filterButtons[3]) filterButtons[3].classList.add('active');
+
         let url = `${API_BASE}/admin/taskers`;
         if (filter === 'pending') {
             url += '?pendientes=true';
+        } else if (filter === 'rejected') {
+            url += '?rechazados=true';
         }
 
         const response = await fetch(url, {
@@ -697,50 +1042,30 @@ async function loadAdminTaskers(filter = 'pending') {
         if (response.ok && data.taskers) {
             let taskers = data.taskers;
             
-            // Filtrar por aprobados si es necesario
+            // Filtrar según el filtro seleccionado
             if (filter === 'approved') {
-                taskers = taskers.filter(t => t.aprobado_admin);
+                taskers = taskers.filter(t => t.aprobado_admin === true);
             } else if (filter === 'pending') {
-                taskers = taskers.filter(t => !t.aprobado_admin);
+                taskers = taskers.filter(t => t.aprobado_admin === false);
+            } else if (filter === 'rejected') {
+                // Rechazados son los que no están aprobados (mismo que pendientes por ahora)
+                taskers = taskers.filter(t => t.aprobado_admin === false);
             }
+            // 'all' muestra todos sin filtrar
 
-            if (taskers.length === 0) {
-                listContainer.innerHTML = `<p class="no-results">No hay taskers ${filter === 'pending' ? 'pendientes' : filter === 'approved' ? 'aprobados' : ''}</p>`;
-                return;
-            }
+            // Guardar datos completos y filtrados
+            allAdminTaskers = taskers;
+            currentAdminTaskers = taskers;
+            
+            // Aplicar búsqueda y ordenamiento
+            applyTaskersFilters();
 
-            let html = '<div class="admin-items-list">';
-            taskers.forEach(tasker => {
-                const estadoBadge = tasker.aprobado_admin 
-                    ? '<span class="badge approved">✅ Aprobado</span>' 
-                    : '<span class="badge pending">⏳ Pendiente</span>';
-
-                html += `
-                    <div class="admin-item-card">
-                        <div class="item-header">
-                            <h4>${tasker.nombre} ${tasker.apellido}</h4>
-                            ${estadoBadge}
-                        </div>
-                        <div class="item-details">
-                            <p><strong>Email:</strong> ${tasker.email}</p>
-                            <p><strong>Teléfono:</strong> ${tasker.telefono || 'No especificado'}</p>
-                            ${tasker.cuit ? `<p><strong>CUIT:</strong> ${tasker.cuit}</p>` : ''}
-                            <p><strong>Monotributista:</strong> ${tasker.monotributista_check ? 'Sí' : 'No'}</p>
-                            <p><strong>Disponible:</strong> ${tasker.disponible ? 'Sí' : 'No'}</p>
-                            <p><strong>Registro:</strong> ${new Date(tasker.createdAt).toLocaleDateString('es-ES')}</p>
-                        </div>
-                        <div class="item-actions">
-                            ${!tasker.aprobado_admin ? `
-                                <button class="btn-primary" onclick="aprobarTasker(${tasker.id})">✅ Aprobar</button>
-                            ` : `
-                                <button class="btn-secondary" onclick="rechazarTasker(${tasker.id})">❌ Rechazar</button>
-                            `}
-                        </div>
-                    </div>
-                `;
-            });
-            html += '</div>';
-            listContainer.innerHTML = html;
+            // Guardar datos completos y filtrados
+            allAdminTaskers = taskers;
+            currentAdminTaskers = taskers;
+            
+            // Aplicar búsqueda y ordenamiento
+            applyTaskersFilters();
         } else {
             listContainer.innerHTML = `<p class="error">Error al cargar taskers</p>`;
         }
@@ -754,10 +1079,22 @@ async function loadAdminTaskers(filter = 'pending') {
 }
 
 // Función para cargar clientes
-async function loadAdminClientes() {
+async function loadAdminClientes(filter = 'all') {
     try {
         const listContainer = document.getElementById('adminClientesList');
         if (!listContainer) return;
+
+        currentAdminFilter.clientes = filter;
+
+        // Actualizar botones de filtro activos
+        document.querySelectorAll('#admin-tab-content-clientes .btn-filter').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        const filterButtons = document.querySelectorAll('#admin-tab-content-clientes .btn-filter');
+        if (filter === 'all' && filterButtons[0]) filterButtons[0].classList.add('active');
+        if (filter === 'pending' && filterButtons[1]) filterButtons[1].classList.add('active');
+        if (filter === 'rejected' && filterButtons[2]) filterButtons[2].classList.add('active');
+        if (filter === 'approved' && filterButtons[3]) filterButtons[3].classList.add('active');
 
         const response = await fetch(`${API_BASE}/admin/clientes`, {
             headers: {
@@ -767,32 +1104,32 @@ async function loadAdminClientes() {
 
         const data = await response.json();
         if (response.ok && data.clientes) {
-            const clientes = data.clientes;
+            let clientes = data.clientes;
 
-            if (clientes.length === 0) {
-                listContainer.innerHTML = `<p class="no-results">No hay clientes registrados</p>`;
-                return;
+            // Filtrar según el filtro seleccionado
+            if (filter === 'approved') {
+                clientes = clientes.filter(c => c.aprobado_admin === true);
+            } else if (filter === 'pending') {
+                clientes = clientes.filter(c => c.aprobado_admin === false);
+            } else if (filter === 'rejected') {
+                // Rechazados son los que no están aprobados (mismo que pendientes por ahora)
+                clientes = clientes.filter(c => c.aprobado_admin === false);
             }
+            // 'all' muestra todos sin filtrar
 
-            let html = '<div class="admin-items-list">';
-            html += `<p class="total-count">Total: ${clientes.length} clientes</p>`;
-            clientes.forEach(cliente => {
-                html += `
-                    <div class="admin-item-card">
-                        <div class="item-header">
-                            <h4>${cliente.nombre} ${cliente.apellido}</h4>
-                        </div>
-                        <div class="item-details">
-                            <p><strong>Email:</strong> ${cliente.email}</p>
-                            <p><strong>Teléfono:</strong> ${cliente.telefono || 'No especificado'}</p>
-                            ${cliente.ubicacion_default ? `<p><strong>Ubicación:</strong> ${cliente.ubicacion_default}</p>` : ''}
-                            <p><strong>Registro:</strong> ${new Date(cliente.createdAt).toLocaleDateString('es-ES')}</p>
-                        </div>
-                    </div>
-                `;
-            });
-            html += '</div>';
-            listContainer.innerHTML = html;
+            // Guardar datos completos y filtrados
+            allAdminClientes = clientes;
+            currentAdminClientes = clientes;
+            
+            // Aplicar búsqueda y ordenamiento
+            applyClientesFilters();
+
+            // Guardar datos completos y filtrados
+            allAdminClientes = clientes;
+            currentAdminClientes = clientes;
+            
+            // Aplicar búsqueda y ordenamiento
+            applyClientesFilters();
         } else {
             listContainer.innerHTML = `<p class="error">Error al cargar clientes</p>`;
         }
@@ -813,6 +1150,7 @@ async function loadAdminTareas() {
 
         const filterSelect = document.getElementById('adminTareasFilter');
         const filter = filterSelect ? filterSelect.value : 'all';
+        currentAdminFilter.tareas = filter;
 
         const response = await fetch(`${API_BASE}/admin/tareas`, {
             headers: {
@@ -829,51 +1167,97 @@ async function loadAdminTareas() {
                 tareas = tareas.filter(t => t.estado === filter);
             }
 
-            if (tareas.length === 0) {
-                listContainer.innerHTML = `<p class="no-results">No hay tareas ${filter !== 'all' ? `en estado ${filter}` : ''}</p>`;
-                return;
-            }
-
-            let html = '<div class="admin-items-list">';
-            html += `<p class="total-count">Total: ${tareas.length} tareas</p>`;
-            tareas.forEach(tarea => {
-                const estadoBadge = {
-                    'PENDIENTE': '<span class="badge pending">⏳ Pendiente</span>',
-                    'ASIGNADA': '<span class="badge assigned">📋 Asignada</span>',
-                    'EN_PROCESO': '<span class="badge in-progress">🔧 En Proceso</span>',
-                    'PENDIENTE_PAGO': '<span class="badge payment">💳 Pendiente Pago</span>',
-                    'FINALIZADA': '<span class="badge completed">✅ Finalizada</span>',
-                    'CANCELADA': '<span class="badge cancelled">❌ Cancelada</span>'
-                }[tarea.estado] || '';
-
-                html += `
-                    <div class="admin-item-card">
-                        <div class="item-header">
-                            <h4>${tarea.tipo_servicio} - $${parseFloat(tarea.monto_total_acordado || 0).toLocaleString('es-AR')}</h4>
-                            ${estadoBadge}
-                        </div>
-                        <div class="item-details">
-                            <p><strong>Descripción:</strong> ${tarea.descripcion || 'Sin descripción'}</p>
-                            <p><strong>Cliente:</strong> ${tarea.cliente ? `${tarea.cliente.nombre} ${tarea.cliente.apellido} (${tarea.cliente.email})` : 'N/A'}</p>
-                            <p><strong>Tasker:</strong> ${tarea.tasker ? `${tarea.tasker.nombre} ${tarea.tasker.apellido} (${tarea.tasker.email})` : 'No asignado'}</p>
-                            <p><strong>Ubicación:</strong> ${tarea.ubicacion?.direccion || 'No especificada'}</p>
-                            <p><strong>Fecha requerida:</strong> ${new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES')}</p>
-                            <p><strong>Creación:</strong> ${new Date(tarea.createdAt).toLocaleDateString('es-ES')}</p>
-                        </div>
-                    </div>
-                `;
-            });
-            html += '</div>';
-            listContainer.innerHTML = html;
+            // Guardar datos completos y filtrados
+            allAdminTareas = tareas;
+            currentAdminTareas = tareas;
+            
+            // Aplicar búsqueda y filtros avanzados
+            applyTareasFilters();
         } else {
-            listContainer.innerHTML = `<p class="error">Error al cargar tareas</p>`;
+            const errorMsg = data.message || data.error || 'Error desconocido';
+            console.error('Error en respuesta:', data);
+            listContainer.innerHTML = `<p class="error">Error al cargar tareas: ${errorMsg}</p>`;
         }
     } catch (error) {
         console.error('Error cargando tareas:', error);
         const listContainer = document.getElementById('adminTareasList');
         if (listContainer) {
-            listContainer.innerHTML = `<p class="error">Error de conexión</p>`;
+            listContainer.innerHTML = `<p class="error">Error de conexión: ${error.message}</p>`;
         }
+    }
+}
+
+// Funciones de exportación
+function exportTaskers(format) {
+    if (currentAdminTaskers.length === 0) {
+        showMessage('❌ No hay taskers para exportar. Carga los datos primero.', 'error');
+        return;
+    }
+    
+    const filterText = currentAdminFilter.taskers === 'all' ? 'todos' : 
+                       currentAdminFilter.taskers === 'pending' ? 'pendientes' :
+                       currentAdminFilter.taskers === 'rejected' ? 'rechazados' :
+                       'aprobados';
+    
+    if (format === 'csv') {
+        exportToCSV(currentAdminTaskers, `taskers_${filterText}`);
+    } else {
+        exportToJSON(currentAdminTaskers, `taskers_${filterText}`);
+    }
+}
+
+function exportClientes(format) {
+    if (currentAdminClientes.length === 0) {
+        showMessage('❌ No hay clientes para exportar. Carga los datos primero.', 'error');
+        return;
+    }
+    
+    if (format === 'csv') {
+        exportToCSV(currentAdminClientes, 'clientes');
+    } else {
+        exportToJSON(currentAdminClientes, 'clientes');
+    }
+}
+
+function exportTareas(format) {
+    if (currentAdminTareas.length === 0) {
+        showMessage('❌ No hay tareas para exportar. Carga los datos primero.', 'error');
+        return;
+    }
+    
+    // Preparar datos para exportación (simplificar objetos anidados)
+    const tareasExport = currentAdminTareas.map(tarea => {
+        const tareaExport = {
+            id: tarea.id,
+            tipo_servicio: tarea.tipo_servicio,
+            descripcion: tarea.descripcion,
+            estado: tarea.estado,
+            monto_total_acordado: tarea.monto_total_acordado,
+            comision_app: tarea.comision_app,
+            cliente_id: tarea.cliente_id,
+            cliente_nombre: tarea.cliente ? `${tarea.cliente.nombre} ${tarea.cliente.apellido}` : 'N/A',
+            cliente_email: tarea.cliente ? tarea.cliente.email : 'N/A',
+            tasker_id: tarea.tasker_id || 'N/A',
+            tasker_nombre: tarea.tasker ? `${tarea.tasker.nombre} ${tarea.tasker.apellido}` : 'N/A',
+            tasker_email: tarea.tasker ? tarea.tasker.email : 'N/A',
+            ubicacion: typeof tarea.ubicacion === 'string' ? tarea.ubicacion : 
+                      (tarea.ubicacion?.direccion || tarea.ubicacion?.ciudad || 'No especificada'),
+            fecha_hora_requerida: tarea.fecha_hora_requerida ? new Date(tarea.fecha_hora_requerida).toISOString() : 'N/A',
+            fecha_inicio_trabajo: tarea.fecha_inicio_trabajo ? new Date(tarea.fecha_inicio_trabajo).toISOString() : 'N/A',
+            fecha_finalizacion_trabajo: tarea.fecha_finalizacion_trabajo ? new Date(tarea.fecha_finalizacion_trabajo).toISOString() : 'N/A',
+            requiere_licencia: tarea.requiere_licencia ? 'Sí' : 'No',
+            createdAt: tarea.createdAt ? new Date(tarea.createdAt).toISOString() : 'N/A',
+            updatedAt: tarea.updatedAt ? new Date(tarea.updatedAt).toISOString() : 'N/A'
+        };
+        return tareaExport;
+    });
+    
+    const filterText = currentAdminFilter.tareas === 'all' ? 'todas' : currentAdminFilter.tareas.toLowerCase();
+    
+    if (format === 'csv') {
+        exportToCSV(tareasExport, `tareas_${filterText}`);
+    } else {
+        exportToJSON(tareasExport, `tareas_${filterText}`);
     }
 }
 
@@ -909,7 +1293,7 @@ async function aprobarTasker(taskerId) {
             showMessage(`✅ ${data.message}`, 'success');
             // Recargar la lista de taskers y estadísticas
             setTimeout(() => {
-                loadAdminTaskers('pending');
+                loadAdminTaskers(currentAdminFilter.taskers || 'pending');
                 loadAdminStats();
             }, 1000);
         } else {
@@ -948,7 +1332,7 @@ async function rechazarTasker(taskerId) {
             showMessage(`✅ ${data.message}`, 'success');
             // Recargar la lista de taskers y estadísticas
             setTimeout(() => {
-                loadAdminTaskers('pending');
+                loadAdminTaskers(currentAdminFilter.taskers || 'pending');
                 loadAdminStats();
             }, 1000);
         } else {
@@ -957,6 +1341,250 @@ async function rechazarTasker(taskerId) {
     } catch (error) {
         console.error('Error rechazando tasker:', error);
         showMessage('❌ Error de conexión al rechazar tasker', 'error');
+    }
+}
+
+// Función para aprobar cliente
+async function aprobarCliente(clienteId) {
+    if (!confirm('¿Estás seguro de que quieres aprobar a este cliente?')) {
+        return;
+    }
+
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/admin/cliente/verify/${clienteId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            },
+            body: JSON.stringify({ aprobado_admin: true })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage(`✅ ${data.message}`, 'success');
+            setTimeout(() => {
+                loadAdminClientes(currentAdminFilter.clientes || 'all');
+                loadAdminStats();
+            }, 1000);
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al aprobar cliente'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error aprobando cliente:', error);
+        showMessage('❌ Error de conexión al aprobar cliente', 'error');
+    }
+}
+
+// Función para rechazar cliente
+async function rechazarCliente(clienteId) {
+    if (!confirm('¿Estás seguro de que quieres rechazar a este cliente?')) {
+        return;
+    }
+
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/admin/cliente/verify/${clienteId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            },
+            body: JSON.stringify({ aprobado_admin: false })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage(`✅ ${data.message}`, 'success');
+            setTimeout(() => {
+                loadAdminClientes(currentAdminFilter.clientes || 'all');
+                loadAdminStats();
+            }, 1000);
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al rechazar cliente'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error rechazando cliente:', error);
+        showMessage('❌ Error de conexión al rechazar cliente', 'error');
+    }
+}
+
+// Función para aprobar tarea
+async function aprobarTarea(tareaId) {
+    if (!confirm('¿Estás seguro de que quieres aprobar esta tarea?')) {
+        return;
+    }
+
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/admin/tarea/verify/${tareaId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            },
+            body: JSON.stringify({ aprobado_admin: true })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage(`✅ ${data.message}`, 'success');
+            setTimeout(() => {
+                loadAdminTareas();
+                loadAdminStats();
+            }, 1000);
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al aprobar tarea'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error aprobando tarea:', error);
+        showMessage('❌ Error de conexión al aprobar tarea', 'error');
+    }
+}
+
+// Función para rechazar tarea
+async function rechazarTarea(tareaId) {
+    if (!confirm('¿Estás seguro de que quieres rechazar esta tarea?')) {
+        return;
+    }
+
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/admin/tarea/verify/${tareaId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            },
+            body: JSON.stringify({ aprobado_admin: false })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage(`✅ ${data.message}`, 'success');
+            setTimeout(() => {
+                loadAdminTareas();
+                loadAdminStats();
+            }, 1000);
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al rechazar tarea'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error rechazando tarea:', error);
+        showMessage('❌ Error de conexión al rechazar tarea', 'error');
+    }
+}
+
+// Función para bloquear usuario (tasker o cliente)
+async function bloquearUsuario(usuarioId, tipo) {
+    const tipoTexto = tipo === 'tasker' ? 'tasker' : 'cliente';
+    if (!confirm(`¿Estás seguro de que quieres bloquear a este ${tipoTexto}?`)) {
+        return;
+    }
+
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/admin/user/block/${usuarioId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            },
+            body: JSON.stringify({ 
+                bloqueado: true,
+                tipo: tipo
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage(`✅ ${data.message}`, 'success');
+            setTimeout(() => {
+                if (tipo === 'tasker') {
+                    loadAdminTaskers(currentAdminFilter.taskers || 'pending');
+                } else {
+                    loadAdminClientes(currentAdminFilter.clientes || 'all');
+                }
+                loadAdminStats();
+            }, 1000);
+        } else {
+            showMessage(`❌ Error: ${data.message || `Error al bloquear ${tipoTexto}`}`, 'error');
+        }
+    } catch (error) {
+        console.error(`Error bloqueando ${tipoTexto}:`, error);
+        showMessage(`❌ Error de conexión al bloquear ${tipoTexto}`, 'error');
+    }
+}
+
+// Función para desbloquear usuario (tasker o cliente)
+async function desbloquearUsuario(usuarioId, tipo) {
+    const tipoTexto = tipo === 'tasker' ? 'tasker' : 'cliente';
+    if (!confirm(`¿Estás seguro de que quieres desbloquear a este ${tipoTexto}?`)) {
+        return;
+    }
+
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/admin/user/block/${usuarioId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentToken}`
+            },
+            body: JSON.stringify({ 
+                bloqueado: false,
+                tipo: tipo
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage(`✅ ${data.message}`, 'success');
+            setTimeout(() => {
+                if (tipo === 'tasker') {
+                    loadAdminTaskers(currentAdminFilter.taskers || 'pending');
+                } else {
+                    loadAdminClientes(currentAdminFilter.clientes || 'all');
+                }
+                loadAdminStats();
+            }, 1000);
+        } else {
+            showMessage(`❌ Error: ${data.message || `Error al desbloquear ${tipoTexto}`}`, 'error');
+        }
+    } catch (error) {
+        console.error(`Error desbloqueando ${tipoTexto}:`, error);
+        showMessage(`❌ Error de conexión al desbloquear ${tipoTexto}`, 'error');
     }
 }
 
@@ -1012,6 +1640,17 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('clienteForm').addEventListener('submit', registerCliente);
     document.getElementById('taskerForm').addEventListener('submit', registerTasker);
     document.getElementById('loginForm').addEventListener('submit', login);
+    
+    // Event listeners para recuperación de contraseña
+    const forgotPasswordForm = document.getElementById('forgotPasswordForm');
+    if (forgotPasswordForm) {
+        forgotPasswordForm.addEventListener('submit', forgotPassword);
+    }
+    
+    const resetPasswordForm = document.getElementById('resetPasswordForm');
+    if (resetPasswordForm) {
+        resetPasswordForm.addEventListener('submit', resetPassword);
+    }
     // Nota: taskForm se crea dinámicamente, su event listener se agrega en renderClientDashboard
 
     // Event listeners para checkboxes de términos
@@ -4226,24 +4865,49 @@ function showSearchContent() {
         searchHTML = `
             <div class="search-container">
                 <h2>🔍 Buscar Taskers</h2>
-                <div class="search-filters">
-                    <input type="text" id="searchTaskerNombre" placeholder="Buscar por nombre..." class="search-input">
-                    <select id="searchTaskerCategoria" class="search-select">
-                        <option value="">Todas las categorías</option>
-                        <option value="EXPRESS">⚡ Express</option>
-                        <option value="OFICIOS">🔧 Oficios</option>
-                    </select>
-                    <select id="searchTaskerEspecialidad" class="search-select">
-                        <option value="">Todas las especialidades</option>
-                        <option value="Plomería">🔧 Plomería</option>
-                        <option value="Albañilería">🧱 Albañilería</option>
-                        <option value="Electricista">⚡ Electricista</option>
-                        <option value="Gasista">🔥 Gasista</option>
-                        <option value="Carpintería">🔨 Carpintería</option>
-                        <option value="Pintura">🎨 Pintura</option>
-                    </select>
-                    <input type="text" id="searchTaskerSkill" placeholder="Buscar por skill..." class="search-input">
-                    <button onclick="searchTaskers()" class="btn-primary">🔍 Buscar</button>
+                <div class="search-filters-advanced">
+                    <div class="search-row">
+                        <input type="text" id="searchTaskerNombre" placeholder="🔍 Buscar por nombre, email, teléfono..." class="search-input-large" onkeyup="searchTaskers()" oninput="searchTaskers()">
+                        <select id="sortTaskersSearch" class="sort-select" onchange="searchTaskers()">
+                            <option value="name-asc">Ordenar: Nombre A-Z</option>
+                            <option value="name-desc">Ordenar: Nombre Z-A</option>
+                            <option value="rating-desc">Ordenar: Mejor calificado</option>
+                            <option value="rating-asc">Ordenar: Menor calificado</option>
+                        </select>
+                    </div>
+                    <div class="search-row">
+                        <select id="searchTaskerCategoria" class="search-select" onchange="searchTaskers()">
+                            <option value="">Todas las categorías</option>
+                            <option value="EXPRESS">⚡ Express</option>
+                            <option value="OFICIOS">🔧 Oficios</option>
+                        </select>
+                        <select id="searchTaskerEspecialidad" class="search-select" onchange="searchTaskers()">
+                            <option value="">Todas las especialidades</option>
+                            <option value="Plomería">🔧 Plomería</option>
+                            <option value="Albañilería">🧱 Albañilería</option>
+                            <option value="Electricista">⚡ Electricista</option>
+                            <option value="Gasista">🔥 Gasista</option>
+                            <option value="Carpintería">🔨 Carpintería</option>
+                            <option value="Pintura">🎨 Pintura</option>
+                        </select>
+                        <select id="searchTaskerDisponibilidad" class="search-select" onchange="searchTaskers()">
+                            <option value="">Todos</option>
+                            <option value="disponible">✅ Solo disponibles</option>
+                            <option value="no-disponible">❌ No disponibles</option>
+                        </select>
+                        <select id="searchTaskerCalificacion" class="search-select" onchange="searchTaskers()">
+                            <option value="">Cualquier calificación</option>
+                            <option value="5">⭐ 5 estrellas</option>
+                            <option value="4">⭐ 4+ estrellas</option>
+                            <option value="3">⭐ 3+ estrellas</option>
+                            <option value="2">⭐ 2+ estrellas</option>
+                            <option value="1">⭐ 1+ estrellas</option>
+                        </select>
+                    </div>
+                    <div class="search-row">
+                        <input type="text" id="searchTaskerSkill" placeholder="Buscar por skill específico..." class="search-input" onkeyup="searchTaskers()" oninput="searchTaskers()">
+                        <button onclick="clearTaskerFilters()" class="btn-secondary">🗑️ Limpiar Filtros</button>
+                    </div>
                 </div>
                 <div id="taskersResults" class="results-container">
                     <p class="no-results">Usa los filtros para buscar taskers</p>
@@ -4255,9 +4919,30 @@ function showSearchContent() {
         searchHTML = `
             <div class="search-container">
                 <h2>🔍 Buscar Clientes</h2>
-                <div class="search-filters">
-                    <input type="text" id="searchClienteNombre" placeholder="Buscar por nombre..." class="search-input">
-                    <button onclick="searchClientes()" class="btn-primary">🔍 Buscar</button>
+                <div class="search-filters-advanced">
+                    <div class="search-row">
+                        <input type="text" id="searchClienteNombre" placeholder="🔍 Buscar por nombre, email, teléfono, ubicación..." class="search-input-large" onkeyup="searchClientes()" oninput="searchClientes()">
+                        <select id="sortClientesSearch" class="sort-select" onchange="searchClientes()">
+                            <option value="name-asc">Ordenar: Nombre A-Z</option>
+                            <option value="name-desc">Ordenar: Nombre Z-A</option>
+                            <option value="rating-desc">Ordenar: Mejor calificado</option>
+                            <option value="rating-asc">Ordenar: Menor calificado</option>
+                            <option value="date-desc">Ordenar: Más recientes</option>
+                            <option value="date-asc">Ordenar: Más antiguos</option>
+                        </select>
+                    </div>
+                    <div class="search-row">
+                        <select id="searchClienteCalificacion" class="search-select" onchange="searchClientes()">
+                            <option value="">Cualquier calificación</option>
+                            <option value="5">⭐ 5 estrellas</option>
+                            <option value="4">⭐ 4+ estrellas</option>
+                            <option value="3">⭐ 3+ estrellas</option>
+                            <option value="2">⭐ 2+ estrellas</option>
+                            <option value="1">⭐ 1+ estrellas</option>
+                        </select>
+                        <input type="text" id="searchClienteUbicacion" placeholder="Buscar por ubicación..." class="search-input" onkeyup="searchClientes()" oninput="searchClientes()">
+                        <button onclick="clearClienteFilters()" class="btn-secondary">🗑️ Limpiar Filtros</button>
+                    </div>
                 </div>
                 <div id="clientesResults" class="results-container">
                     <p class="no-results">Usa los filtros para buscar clientes</p>
@@ -4269,13 +4954,20 @@ function showSearchContent() {
     searchContent.innerHTML = searchHTML;
 }
 
-// Función para buscar taskers
+// Variables globales para búsqueda
+let allSearchTaskers = [];
+let allSearchClientes = [];
+
+// Función para buscar taskers (mejorada con filtros avanzados)
 async function searchTaskers() {
     try {
         const nombre = document.getElementById('searchTaskerNombre')?.value || '';
         const categoria = document.getElementById('searchTaskerCategoria')?.value || '';
         const especialidad = document.getElementById('searchTaskerEspecialidad')?.value || '';
         const skill = document.getElementById('searchTaskerSkill')?.value || '';
+        const disponibilidad = document.getElementById('searchTaskerDisponibilidad')?.value || '';
+        const calificacionMin = document.getElementById('searchTaskerCalificacion')?.value || '';
+        const sortOption = document.getElementById('sortTaskersSearch')?.value || 'name-asc';
 
         const params = new URLSearchParams();
         if (nombre) params.append('nombre', nombre);
@@ -4294,32 +4986,46 @@ async function searchTaskers() {
 
         if (response.ok && resultsDiv) {
             if (data.taskers && data.taskers.length > 0) {
-                let resultsHTML = `<h3>Resultados (${data.total})</h3>`;
-                data.taskers.forEach(tasker => {
-                    resultsHTML += `
-                        <div class="profile-card" onclick="viewTaskerProfile(${tasker.id})">
-                            <div class="profile-header">
-                                <h3>${tasker.nombre} ${tasker.apellido}</h3>
-                                <span class="status-badge ${tasker.disponible ? 'available' : 'unavailable'}">
-                                    ${tasker.disponible ? '✅ Disponible' : '❌ No disponible'}
-                                </span>
-                            </div>
-                            <div class="profile-details">
-                                <p><strong>📞 Teléfono:</strong> ${tasker.telefono || 'No especificado'}</p>
-                                ${tasker.categoria_principal ? `<p><strong>Categoría:</strong> ${tasker.categoria_principal}</p>` : ''}
-                                ${tasker.especialidades && tasker.especialidades.length > 0 ? 
-                                    `<p><strong>Especialidades:</strong> ${tasker.especialidades.join(', ')}</p>` : ''}
-                                ${tasker.skills && tasker.skills.length > 0 ? 
-                                    `<p><strong>Skills:</strong> ${tasker.skills.join(', ')}</p>` : ''}
-                                ${tasker.descripcion_profesional ? 
-                                    `<p><strong>Descripción:</strong> ${tasker.descripcion_profesional}</p>` : ''}
-                            </div>
-                        </div>
-                    `;
+                // Guardar todos los resultados
+                allSearchTaskers = data.taskers;
+                
+                // Aplicar filtros adicionales en el frontend
+                let filtered = data.taskers;
+                
+                // Filtro por disponibilidad
+                if (disponibilidad === 'disponible') {
+                    filtered = filtered.filter(t => t.disponible === true);
+                } else if (disponibilidad === 'no-disponible') {
+                    filtered = filtered.filter(t => t.disponible === false);
+                }
+                
+                // Filtro por calificación mínima
+                if (calificacionMin) {
+                    const minRating = parseFloat(calificacionMin);
+                    filtered = filtered.filter(t => (t.calificacion_promedio || 0) >= minRating);
+                }
+                
+                // Ordenar
+                filtered.sort((a, b) => {
+                    switch(sortOption) {
+                        case 'name-asc':
+                            return `${a.nombre} ${a.apellido}`.localeCompare(`${b.nombre} ${b.apellido}`);
+                        case 'name-desc':
+                            return `${b.nombre} ${b.apellido}`.localeCompare(`${a.nombre} ${a.apellido}`);
+                        case 'rating-desc':
+                            return (b.calificacion_promedio || 0) - (a.calificacion_promedio || 0);
+                        case 'rating-asc':
+                            return (a.calificacion_promedio || 0) - (b.calificacion_promedio || 0);
+                        default:
+                            return 0;
+                    }
                 });
-                resultsDiv.innerHTML = resultsHTML;
+                
+                // Renderizar resultados
+                renderTaskersResults(filtered);
             } else {
                 resultsDiv.innerHTML = '<p class="no-results">No se encontraron taskers con esos criterios</p>';
+                allSearchTaskers = [];
             }
         }
     } catch (error) {
@@ -4328,10 +5034,72 @@ async function searchTaskers() {
     }
 }
 
-// Función para buscar clientes
+// Función para renderizar resultados de taskers
+function renderTaskersResults(taskers) {
+    const resultsDiv = document.getElementById('taskersResults');
+    if (!resultsDiv) return;
+
+    if (taskers.length === 0) {
+        resultsDiv.innerHTML = '<p class="no-results">No se encontraron taskers con esos criterios</p>';
+        return;
+    }
+
+    let resultsHTML = `<h3>Resultados (${taskers.length})</h3>`;
+    taskers.forEach(tasker => {
+        const ratingStars = tasker.calificacion_promedio 
+            ? `${'⭐'.repeat(Math.round(tasker.calificacion_promedio))}${'☆'.repeat(5 - Math.round(tasker.calificacion_promedio))} ${tasker.calificacion_promedio.toFixed(1)}`
+            : 'Sin calificaciones';
+        
+        resultsHTML += `
+            <div class="profile-card" onclick="viewTaskerProfile(${tasker.id})">
+                <div class="profile-header">
+                    <h3>${tasker.nombre} ${tasker.apellido}</h3>
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <span class="status-badge ${tasker.disponible ? 'available' : 'unavailable'}">
+                            ${tasker.disponible ? '✅ Disponible' : '❌ No disponible'}
+                        </span>
+                        ${tasker.calificacion_promedio ? `
+                            <span class="rating-badge">
+                                ${ratingStars} (${tasker.total_calificaciones || 0})
+                            </span>
+                        ` : ''}
+                    </div>
+                </div>
+                <div class="profile-details">
+                    <p><strong>📞 Teléfono:</strong> ${tasker.telefono || 'No especificado'}</p>
+                    ${tasker.categoria_principal ? `<p><strong>Categoría:</strong> ${tasker.categoria_principal}</p>` : ''}
+                    ${tasker.especialidades && tasker.especialidades.length > 0 ? 
+                        `<p><strong>Especialidades:</strong> ${tasker.especialidades.join(', ')}</p>` : ''}
+                    ${tasker.skills && tasker.skills.length > 0 ? 
+                        `<p><strong>Skills:</strong> ${tasker.skills.join(', ')}</p>` : ''}
+                    ${tasker.descripcion_profesional ? 
+                        `<p><strong>Descripción:</strong> ${tasker.descripcion_profesional}</p>` : ''}
+                </div>
+            </div>
+        `;
+    });
+    resultsDiv.innerHTML = resultsHTML;
+}
+
+// Función para limpiar filtros de taskers
+function clearTaskerFilters() {
+    document.getElementById('searchTaskerNombre').value = '';
+    document.getElementById('searchTaskerCategoria').value = '';
+    document.getElementById('searchTaskerEspecialidad').value = '';
+    document.getElementById('searchTaskerSkill').value = '';
+    document.getElementById('searchTaskerDisponibilidad').value = '';
+    document.getElementById('searchTaskerCalificacion').value = '';
+    document.getElementById('sortTaskersSearch').value = 'name-asc';
+    searchTaskers();
+}
+
+// Función para buscar clientes (mejorada con filtros avanzados)
 async function searchClientes() {
     try {
         const nombre = document.getElementById('searchClienteNombre')?.value || '';
+        const ubicacion = document.getElementById('searchClienteUbicacion')?.value || '';
+        const calificacionMin = document.getElementById('searchClienteCalificacion')?.value || '';
+        const sortOption = document.getElementById('sortClientesSearch')?.value || 'name-asc';
 
         const params = new URLSearchParams();
         if (nombre) params.append('nombre', nombre);
@@ -4345,32 +5113,132 @@ async function searchClientes() {
         const data = await response.json();
         const resultsDiv = document.getElementById('clientesResults');
 
-        if (response.ok && resultsDiv) {
+        if (!response.ok) {
+            const errorMsg = data.message || data.error || 'Error desconocido';
+            console.error('Error en respuesta:', data);
+            if (resultsDiv) {
+                resultsDiv.innerHTML = `<p class="error">Error: ${errorMsg}</p>`;
+            }
+            showMessage(`❌ Error: ${errorMsg}`, 'error');
+            return;
+        }
+
+        if (resultsDiv) {
             if (data.clientes && data.clientes.length > 0) {
-                let resultsHTML = `<h3>Resultados (${data.total})</h3>`;
-                data.clientes.forEach(cliente => {
-                    resultsHTML += `
-                        <div class="profile-card" onclick="viewClienteProfile(${cliente.id})">
-                            <div class="profile-header">
-                                <h3>${cliente.nombre} ${cliente.apellido}</h3>
-                            </div>
-                            <div class="profile-details">
-                                <p><strong>📞 Teléfono:</strong> ${cliente.telefono || 'No especificado'}</p>
-                                ${cliente.ubicacion_default ? 
-                                    `<p><strong>📍 Ubicación:</strong> ${cliente.ubicacion_default}</p>` : ''}
-                            </div>
-                        </div>
-                    `;
+                // Guardar todos los resultados
+                allSearchClientes = data.clientes;
+                
+                // Aplicar filtros adicionales en el frontend
+                let filtered = data.clientes;
+                
+                // Filtro por ubicación
+                if (ubicacion) {
+                    const ubicacionLower = ubicacion.toLowerCase();
+                    filtered = filtered.filter(c => {
+                        let ubicacionStr = '';
+                        if (c.ubicacion_default) {
+                            if (typeof c.ubicacion_default === 'string') {
+                                ubicacionStr = c.ubicacion_default;
+                            } else if (typeof c.ubicacion_default === 'object') {
+                                // Si es un objeto, buscar en sus propiedades
+                                ubicacionStr = [
+                                    c.ubicacion_default.direccion,
+                                    c.ubicacion_default.ciudad,
+                                    c.ubicacion_default.ubicacion
+                                ].filter(Boolean).join(' ');
+                            }
+                        }
+                        return ubicacionStr.toLowerCase().includes(ubicacionLower);
+                    });
+                }
+                
+                // Filtro por calificación mínima
+                if (calificacionMin) {
+                    const minRating = parseFloat(calificacionMin);
+                    filtered = filtered.filter(c => (c.calificacion_promedio || 0) >= minRating);
+                }
+                
+                // Ordenar
+                filtered.sort((a, b) => {
+                    switch(sortOption) {
+                        case 'name-asc':
+                            return `${a.nombre} ${a.apellido}`.localeCompare(`${b.nombre} ${b.apellido}`);
+                        case 'name-desc':
+                            return `${b.nombre} ${b.apellido}`.localeCompare(`${a.nombre} ${a.apellido}`);
+                        case 'rating-desc':
+                            return (b.calificacion_promedio || 0) - (a.calificacion_promedio || 0);
+                        case 'rating-asc':
+                            return (a.calificacion_promedio || 0) - (b.calificacion_promedio || 0);
+                        case 'date-desc':
+                            return new Date(b.createdAt) - new Date(a.createdAt);
+                        case 'date-asc':
+                            return new Date(a.createdAt) - new Date(b.createdAt);
+                        default:
+                            return 0;
+                    }
                 });
-                resultsDiv.innerHTML = resultsHTML;
+                
+                // Renderizar resultados
+                renderClientesResults(filtered);
             } else {
                 resultsDiv.innerHTML = '<p class="no-results">No se encontraron clientes con esos criterios</p>';
+                allSearchClientes = [];
             }
         }
     } catch (error) {
         console.error('Error buscando clientes:', error);
-        showMessage('❌ Error de conexión al buscar clientes', 'error');
+        const resultsDiv = document.getElementById('clientesResults');
+        if (resultsDiv) {
+            resultsDiv.innerHTML = `<p class="error">Error de conexión: ${error.message}</p>`;
+        }
+        showMessage(`❌ Error de conexión al buscar clientes: ${error.message}`, 'error');
     }
+}
+
+// Función para renderizar resultados de clientes
+function renderClientesResults(clientes) {
+    const resultsDiv = document.getElementById('clientesResults');
+    if (!resultsDiv) return;
+
+    if (clientes.length === 0) {
+        resultsDiv.innerHTML = '<p class="no-results">No se encontraron clientes con esos criterios</p>';
+        return;
+    }
+
+    let resultsHTML = `<h3>Resultados (${clientes.length})</h3>`;
+    clientes.forEach(cliente => {
+        const ratingStars = cliente.calificacion_promedio 
+            ? `${'⭐'.repeat(Math.round(cliente.calificacion_promedio))}${'☆'.repeat(5 - Math.round(cliente.calificacion_promedio))} ${cliente.calificacion_promedio.toFixed(1)}`
+            : 'Sin calificaciones';
+        
+        resultsHTML += `
+            <div class="profile-card" onclick="viewClienteProfile(${cliente.id})">
+                <div class="profile-header">
+                    <h3>${cliente.nombre} ${cliente.apellido}</h3>
+                    ${cliente.calificacion_promedio ? `
+                        <span class="rating-badge">
+                            ${ratingStars} (${cliente.total_calificaciones || 0})
+                        </span>
+                    ` : ''}
+                </div>
+                <div class="profile-details">
+                    <p><strong>📞 Teléfono:</strong> ${cliente.telefono || 'No especificado'}</p>
+                    ${cliente.ubicacion_default ? 
+                        `<p><strong>📍 Ubicación:</strong> ${cliente.ubicacion_default}</p>` : ''}
+                </div>
+            </div>
+        `;
+    });
+    resultsDiv.innerHTML = resultsHTML;
+}
+
+// Función para limpiar filtros de clientes
+function clearClienteFilters() {
+    document.getElementById('searchClienteNombre').value = '';
+    document.getElementById('searchClienteUbicacion').value = '';
+    document.getElementById('searchClienteCalificacion').value = '';
+    document.getElementById('sortClientesSearch').value = 'name-asc';
+    searchClientes();
 }
 
 // Función para ver perfil completo de un tasker
@@ -4489,6 +5357,521 @@ async function viewClienteProfile(clienteId) {
 function closeProfileModal() {
     const modal = document.querySelector('.modal-overlay');
     if (modal) modal.remove();
+}
+
+// Función para ver detalles completos de un usuario desde el admin
+async function viewAdminUserDetails(usuarioId, tipo) {
+    try {
+        const response = await fetch(`${API_BASE}/admin/user/details/${usuarioId}?tipo=${tipo}`, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        const data = await response.json();
+        if (response.ok && data.usuario) {
+            const { usuario, tareas, calificaciones, estadisticas } = data;
+
+            // Crear HTML del modal
+            let modalHTML = `
+                <div class="modal-overlay" onclick="closeAdminDetailsModal()">
+                    <div class="modal-content admin-details-modal" onclick="event.stopPropagation()">
+                        <button class="modal-close" onclick="event.stopPropagation(); closeAdminDetailsModal()" title="Cerrar">×</button>
+                        <div class="admin-details-header">
+                            <h2>👤 ${usuario.nombre} ${usuario.apellido}</h2>
+                            <div class="user-status-badges">
+                                ${usuario.aprobado_admin !== false 
+                                    ? '<span class="badge approved">✅ Aprobado</span>' 
+                                    : '<span class="badge pending">⏳ Pendiente</span>'}
+                                ${usuario.bloqueado 
+                                    ? '<span class="badge blocked">🚫 Bloqueado</span>' 
+                                    : '<span class="badge active">✓ Activo</span>'}
+                            </div>
+                        </div>
+
+                        <div class="admin-details-content">
+                            <!-- INFORMACIÓN PERSONAL -->
+                            <div class="details-section">
+                                <h3>📋 Información Personal</h3>
+                                <div class="details-grid">
+                                    <div><strong>Email:</strong> ${usuario.email}</div>
+                                    <div><strong>Teléfono:</strong> ${usuario.telefono || 'No especificado'}</div>
+                                    <div><strong>Registro:</strong> ${new Date(usuario.createdAt).toLocaleDateString('es-ES')}</div>
+                                    ${tipo === 'tasker' ? `
+                                        ${usuario.cuit ? `<div><strong>CUIT:</strong> ${usuario.cuit}</div>` : ''}
+                                        <div><strong>Monotributista:</strong> ${usuario.monotributista_check ? 'Sí' : 'No'}</div>
+                                        <div><strong>Disponible:</strong> ${usuario.disponible ? 'Sí' : 'No'}</div>
+                                        ${usuario.categoria_principal ? `<div><strong>Categoría:</strong> ${usuario.categoria_principal}</div>` : ''}
+                                        ${usuario.especialidades && usuario.especialidades.length > 0 ? 
+                                            `<div><strong>Especialidades:</strong> ${usuario.especialidades.join(', ')}</div>` : ''}
+                                        ${usuario.skills && usuario.skills.length > 0 ? 
+                                            `<div><strong>Skills:</strong> ${usuario.skills.join(', ')}</div>` : ''}
+                                        ${usuario.licencias && usuario.licencias.length > 0 ? 
+                                            `<div><strong>Licencias:</strong> ${usuario.licencias.join(', ')}</div>` : ''}
+                                        ${usuario.descripcion_profesional ? 
+                                            `<div><strong>Descripción Profesional:</strong> ${usuario.descripcion_profesional}</div>` : ''}
+                                    ` : `
+                                        ${usuario.ubicacion_default ? `<div><strong>Ubicación:</strong> ${usuario.ubicacion_default}</div>` : ''}
+                                    `}
+                                </div>
+                            </div>
+
+                            <!-- ESTADÍSTICAS -->
+                            <div class="details-section">
+                                <h3>📊 Estadísticas</h3>
+                                <div class="stats-grid-small">
+                                    <div class="stat-item">
+                                        <div class="stat-label">Total Tareas</div>
+                                        <div class="stat-value">${estadisticas.totalTareas}</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-label">Finalizadas</div>
+                                        <div class="stat-value">${estadisticas.tareasPorEstado.FINALIZADA}</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-label">Calificaciones</div>
+                                        <div class="stat-value">${estadisticas.totalCalificaciones}</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <div class="stat-label">Promedio</div>
+                                        <div class="stat-value">${estadisticas.promedioCalificaciones.toFixed(1)} ⭐</div>
+                                    </div>
+                                </div>
+                                <div class="tareas-por-estado">
+                                    <strong>Por Estado:</strong>
+                                    <span>Pendiente: ${estadisticas.tareasPorEstado.PENDIENTE}</span>
+                                    <span>Asignada: ${estadisticas.tareasPorEstado.ASIGNADA}</span>
+                                    <span>En Proceso: ${estadisticas.tareasPorEstado.EN_PROCESO}</span>
+                                    <span>Finalizada: ${estadisticas.tareasPorEstado.FINALIZADA}</span>
+                                    <span>Cancelada: ${estadisticas.tareasPorEstado.CANCELADA}</span>
+                                </div>
+                            </div>
+
+                            <!-- HISTORIAL DE TAREAS -->
+                            <div class="details-section">
+                                <h3>📋 Historial de Tareas (${tareas.length})</h3>
+                                ${tareas.length > 0 ? `
+                                    <div class="tareas-list">
+                                        ${tareas.map(tarea => {
+                                            const estadoBadgeMap = {
+                                                'PENDIENTE': '<span class="badge pending">⏳ Pendiente</span>',
+                                                'ASIGNADA': '<span class="badge assigned">📋 Asignada</span>',
+                                                'EN_PROCESO': '<span class="badge in-progress">🔧 En Proceso</span>',
+                                                'PENDIENTE_PAGO': '<span class="badge payment">💳 Pendiente Pago</span>',
+                                                'FINALIZADA': '<span class="badge completed">✅ Finalizada</span>',
+                                                'CANCELADA': '<span class="badge cancelled">❌ Cancelada</span>'
+                                            };
+                                            const estadoBadge = estadoBadgeMap[tarea.estado] || '';
+
+                                            const otroUsuario = tipo === 'tasker' 
+                                                ? (tarea.cliente ? `${tarea.cliente.nombre} ${tarea.cliente.apellido}` : 'N/A')
+                                                : (tarea.tasker ? `${tarea.tasker.nombre} ${tarea.tasker.apellido}` : 'No asignado');
+
+                                            return `
+                                                <div class="tarea-item">
+                                                    <div class="tarea-header">
+                                                        <strong>${tarea.tipo_servicio || 'Sin tipo'}</strong>
+                                                        ${estadoBadge}
+                                                    </div>
+                                                    <div class="tarea-details">
+                                                        <p><strong>${tipo === 'tasker' ? 'Cliente' : 'Tasker'}:</strong> ${otroUsuario}</p>
+                                                        <p><strong>Monto:</strong> $${parseFloat(tarea.monto_total_acordado || 0).toLocaleString('es-AR')}</p>
+                                                        <p><strong>Fecha:</strong> ${tarea.fecha_hora_requerida ? new Date(tarea.fecha_hora_requerida).toLocaleDateString('es-ES') : 'N/A'}</p>
+                                                        <p><strong>Creada:</strong> ${new Date(tarea.createdAt).toLocaleDateString('es-ES')}</p>
+                                                    </div>
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                ` : '<p class="no-data">No hay tareas registradas</p>'}
+                            </div>
+
+                            <!-- CALIFICACIONES -->
+                            <div class="details-section">
+                                <h3>⭐ Calificaciones (${calificaciones.length})</h3>
+                                ${calificaciones.length > 0 ? `
+                                    <div class="calificaciones-list">
+                                        ${calificaciones.map(calif => {
+                                            const fecha = new Date(calif.createdAt).toLocaleDateString('es-ES');
+                                            return `
+                                                <div class="calificacion-item">
+                                                    <div class="calificacion-header">
+                                                        <span class="rating-stars">${'⭐'.repeat(calif.estrellas)}${'☆'.repeat(5 - calif.estrellas)}</span>
+                                                        <span class="calificacion-fecha">${fecha}</span>
+                                                    </div>
+                                                    ${calif.comentario ? `<p class="calificacion-comentario">"${escapeHtml(calif.comentario)}"</p>` : ''}
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                ` : '<p class="no-data">No hay calificaciones registradas</p>'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al cargar detalles'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error cargando detalles del usuario:', error);
+        showMessage('❌ Error de conexión al cargar detalles', 'error');
+    }
+}
+
+// Función para cerrar modal de detalles admin
+function closeAdminDetailsModal() {
+    const modal = document.querySelector('.modal-overlay');
+    if (modal) modal.remove();
+}
+
+// ========== FUNCIONES DE BÚSQUEDA Y FILTRADO ==========
+
+// Función para filtrar taskers
+function filterTaskers() {
+    applyTaskersFilters();
+}
+
+function applyTaskersFilters() {
+    const listContainer = document.getElementById('adminTaskersList');
+    if (!listContainer || allAdminTaskers.length === 0) return;
+
+    const searchTerm = document.getElementById('searchTaskers')?.value.toLowerCase() || '';
+    const sortOption = document.getElementById('sortTaskers')?.value || 'name-asc';
+
+    // Filtrar por búsqueda
+    let filtered = allAdminTaskers.filter(tasker => {
+        const nombre = `${tasker.nombre} ${tasker.apellido}`.toLowerCase();
+        const email = (tasker.email || '').toLowerCase();
+        const telefono = (tasker.telefono || '').toLowerCase();
+        return nombre.includes(searchTerm) || email.includes(searchTerm) || telefono.includes(searchTerm);
+    });
+
+    // Ordenar
+    filtered.sort((a, b) => {
+        switch(sortOption) {
+            case 'name-asc':
+                return `${a.nombre} ${a.apellido}`.localeCompare(`${b.nombre} ${b.apellido}`);
+            case 'name-desc':
+                return `${b.nombre} ${b.apellido}`.localeCompare(`${a.nombre} ${a.apellido}`);
+            case 'date-asc':
+                return new Date(a.createdAt) - new Date(b.createdAt);
+            case 'date-desc':
+                return new Date(b.createdAt) - new Date(a.createdAt);
+            default:
+                return 0;
+        }
+    });
+
+    // Actualizar datos filtrados
+    currentAdminTaskers = filtered;
+
+    // Renderizar
+    renderTaskers(filtered);
+}
+
+function renderTaskers(taskers) {
+    const listContainer = document.getElementById('adminTaskersList');
+    if (!listContainer) return;
+
+    if (taskers.length === 0) {
+        listContainer.innerHTML = `<p class="no-results">No se encontraron taskers que coincidan con la búsqueda</p>`;
+        return;
+    }
+
+    let html = '<div class="admin-items-list">';
+    html += `<p class="total-count">Total: ${taskers.length} taskers</p>`;
+    taskers.forEach(tasker => {
+        const estadoBadge = tasker.aprobado_admin 
+            ? '<span class="badge approved">✅ Aprobado</span>' 
+            : '<span class="badge pending">⏳ Pendiente/Rechazado</span>';
+        
+        const bloqueadoBadge = tasker.bloqueado 
+            ? '<span class="badge blocked">🚫 Bloqueado</span>' 
+            : '<span class="badge active">✓ Activo</span>';
+
+        html += `
+            <div class="admin-item-card ${tasker.bloqueado ? 'blocked-user' : ''}">
+                <div class="item-header">
+                    <h4>${tasker.nombre} ${tasker.apellido}</h4>
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        ${estadoBadge}
+                        ${bloqueadoBadge}
+                    </div>
+                </div>
+                <div class="item-details">
+                    <p><strong>Email:</strong> ${tasker.email}</p>
+                    <p><strong>Teléfono:</strong> ${tasker.telefono || 'No especificado'}</p>
+                    ${tasker.cuit ? `<p><strong>CUIT:</strong> ${tasker.cuit}</p>` : ''}
+                    <p><strong>Monotributista:</strong> ${tasker.monotributista_check ? 'Sí' : 'No'}</p>
+                    <p><strong>Disponible:</strong> ${tasker.disponible ? 'Sí' : 'No'}</p>
+                    <p><strong>Registro:</strong> ${new Date(tasker.createdAt).toLocaleDateString('es-ES')}</p>
+                </div>
+                <div class="item-actions">
+                    <button class="btn-info" onclick="viewAdminUserDetails(${tasker.id}, 'tasker')" title="Ver detalles completos" style="margin-right: 10px;">👁️ Ver Detalles</button>
+                    ${!tasker.aprobado_admin ? `
+                        <button class="btn-primary" onclick="aprobarTasker(${tasker.id})">✅ Aprobar</button>
+                    ` : `
+                        <button class="btn-secondary" onclick="rechazarTasker(${tasker.id})">❌ Rechazar</button>
+                    `}
+                    ${tasker.bloqueado ? `
+                        <button class="btn-success" onclick="desbloquearUsuario(${tasker.id}, 'tasker')">🔓 Desbloquear</button>
+                    ` : `
+                        <button class="btn-danger" onclick="bloquearUsuario(${tasker.id}, 'tasker')">🚫 Bloquear</button>
+                    `}
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    listContainer.innerHTML = html;
+}
+
+// Función para filtrar clientes
+function filterClientes() {
+    applyClientesFilters();
+}
+
+function applyClientesFilters() {
+    const listContainer = document.getElementById('adminClientesList');
+    if (!listContainer || allAdminClientes.length === 0) return;
+
+    const searchTerm = document.getElementById('searchClientes')?.value.toLowerCase() || '';
+    const sortOption = document.getElementById('sortClientes')?.value || 'name-asc';
+
+    // Filtrar por búsqueda
+    let filtered = allAdminClientes.filter(cliente => {
+        const nombre = `${cliente.nombre} ${cliente.apellido}`.toLowerCase();
+        const email = (cliente.email || '').toLowerCase();
+        const telefono = (cliente.telefono || '').toLowerCase();
+        return nombre.includes(searchTerm) || email.includes(searchTerm) || telefono.includes(searchTerm);
+    });
+
+    // Ordenar
+    filtered.sort((a, b) => {
+        switch(sortOption) {
+            case 'name-asc':
+                return `${a.nombre} ${a.apellido}`.localeCompare(`${b.nombre} ${b.apellido}`);
+            case 'name-desc':
+                return `${b.nombre} ${b.apellido}`.localeCompare(`${a.nombre} ${a.apellido}`);
+            case 'date-asc':
+                return new Date(a.createdAt) - new Date(b.createdAt);
+            case 'date-desc':
+                return new Date(b.createdAt) - new Date(a.createdAt);
+            default:
+                return 0;
+        }
+    });
+
+    // Actualizar datos filtrados
+    currentAdminClientes = filtered;
+
+    // Renderizar
+    renderClientes(filtered);
+}
+
+function renderClientes(clientes) {
+    const listContainer = document.getElementById('adminClientesList');
+    if (!listContainer) return;
+
+    if (clientes.length === 0) {
+        listContainer.innerHTML = `<p class="no-results">No se encontraron clientes que coincidan con la búsqueda</p>`;
+        return;
+    }
+
+    let html = '<div class="admin-items-list">';
+    html += `<p class="total-count">Total: ${clientes.length} clientes</p>`;
+    clientes.forEach(cliente => {
+        const estadoBadge = cliente.aprobado_admin !== false 
+            ? '<span class="badge approved">✅ Aprobado</span>' 
+            : '<span class="badge pending">⏳ Pendiente/Rechazado</span>';
+        
+        const bloqueadoBadge = cliente.bloqueado 
+            ? '<span class="badge blocked">🚫 Bloqueado</span>' 
+            : '<span class="badge active">✓ Activo</span>';
+
+        html += `
+            <div class="admin-item-card ${cliente.bloqueado ? 'blocked-user' : ''}">
+                <div class="item-header">
+                    <h4>${cliente.nombre} ${cliente.apellido}</h4>
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        ${estadoBadge}
+                        ${bloqueadoBadge}
+                    </div>
+                </div>
+                <div class="item-details">
+                    <p><strong>Email:</strong> ${cliente.email}</p>
+                    <p><strong>Teléfono:</strong> ${cliente.telefono || 'No especificado'}</p>
+                    ${cliente.ubicacion_default ? `<p><strong>Ubicación:</strong> ${cliente.ubicacion_default}</p>` : ''}
+                    <p><strong>Registro:</strong> ${new Date(cliente.createdAt).toLocaleDateString('es-ES')}</p>
+                </div>
+                <div class="item-actions">
+                    <button class="btn-info" onclick="viewAdminUserDetails(${cliente.id}, 'cliente')" title="Ver detalles completos" style="margin-right: 10px;">👁️ Ver Detalles</button>
+                    ${cliente.aprobado_admin !== false ? `
+                        <button class="btn-secondary" onclick="rechazarCliente(${cliente.id})">❌ Rechazar</button>
+                    ` : `
+                        <button class="btn-primary" onclick="aprobarCliente(${cliente.id})">✅ Aprobar</button>
+                    `}
+                    ${cliente.bloqueado ? `
+                        <button class="btn-success" onclick="desbloquearUsuario(${cliente.id}, 'cliente')">🔓 Desbloquear</button>
+                    ` : `
+                        <button class="btn-danger" onclick="bloquearUsuario(${cliente.id}, 'cliente')">🚫 Bloquear</button>
+                    `}
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    listContainer.innerHTML = html;
+}
+
+// Función para filtrar tareas
+function filterTareas() {
+    applyTareasFilters();
+}
+
+function applyTareasFilters() {
+    const listContainer = document.getElementById('adminTareasList');
+    if (!listContainer || allAdminTareas.length === 0) return;
+
+    const searchTerm = document.getElementById('searchTareas')?.value.toLowerCase() || '';
+    const estadoFilter = document.getElementById('adminTareasFilter')?.value || 'all';
+    const fechaDesde = document.getElementById('filterFechaDesde')?.value || '';
+    const fechaHasta = document.getElementById('filterFechaHasta')?.value || '';
+    const montoMin = parseFloat(document.getElementById('filterMontoMin')?.value) || 0;
+    const montoMax = parseFloat(document.getElementById('filterMontoMax')?.value) || Infinity;
+    const sortOption = document.getElementById('sortTareas')?.value || 'date-desc';
+
+    // Filtrar
+    let filtered = allAdminTareas.filter(tarea => {
+        // Filtro por estado
+        if (estadoFilter !== 'all' && tarea.estado !== estadoFilter) return false;
+
+        // Filtro por búsqueda
+        if (searchTerm) {
+            const tipoServicio = (tarea.tipo_servicio || '').toLowerCase();
+            const descripcion = (tarea.descripcion || '').toLowerCase();
+            const clienteNombre = tarea.cliente ? `${tarea.cliente.nombre} ${tarea.cliente.apellido}`.toLowerCase() : '';
+            const taskerNombre = tarea.tasker ? `${tarea.tasker.nombre} ${tarea.tasker.apellido}`.toLowerCase() : '';
+            if (!tipoServicio.includes(searchTerm) && 
+                !descripcion.includes(searchTerm) && 
+                !clienteNombre.includes(searchTerm) && 
+                !taskerNombre.includes(searchTerm)) {
+                return false;
+            }
+        }
+
+        // Filtro por fecha
+        if (fechaDesde) {
+            const fechaTarea = tarea.fecha_hora_requerida ? new Date(tarea.fecha_hora_requerida) : new Date(tarea.createdAt);
+            if (fechaTarea < new Date(fechaDesde)) return false;
+        }
+        if (fechaHasta) {
+            const fechaTarea = tarea.fecha_hora_requerida ? new Date(tarea.fecha_hora_requerida) : new Date(tarea.createdAt);
+            if (fechaTarea > new Date(fechaHasta + 'T23:59:59')) return false;
+        }
+
+        // Filtro por monto
+        const monto = parseFloat(tarea.monto_total_acordado || 0);
+        if (monto < montoMin || monto > montoMax) return false;
+
+        return true;
+    });
+
+    // Ordenar
+    filtered.sort((a, b) => {
+        switch(sortOption) {
+            case 'date-desc':
+                return new Date(b.createdAt) - new Date(a.createdAt);
+            case 'date-asc':
+                return new Date(a.createdAt) - new Date(b.createdAt);
+            case 'monto-desc':
+                return parseFloat(b.monto_total_acordado || 0) - parseFloat(a.monto_total_acordado || 0);
+            case 'monto-asc':
+                return parseFloat(a.monto_total_acordado || 0) - parseFloat(b.monto_total_acordado || 0);
+            case 'estado-asc':
+                return (a.estado || '').localeCompare(b.estado || '');
+            default:
+                return 0;
+        }
+    });
+
+    // Actualizar datos filtrados
+    currentAdminTareas = filtered;
+
+    // Renderizar
+    renderTareas(filtered);
+}
+
+function renderTareas(tareas) {
+    const listContainer = document.getElementById('adminTareasList');
+    if (!listContainer) return;
+
+    if (tareas.length === 0) {
+        listContainer.innerHTML = `<p class="no-results">No se encontraron tareas que coincidan con los filtros</p>`;
+        return;
+    }
+
+    let html = '<div class="admin-items-list">';
+    html += `<p class="total-count">Total: ${tareas.length} tareas</p>`;
+    tareas.forEach(tarea => {
+        const estadoBadgeMap = {
+            'PENDIENTE': '<span class="badge pending">⏳ Pendiente</span>',
+            'ASIGNADA': '<span class="badge assigned">📋 Asignada</span>',
+            'EN_PROCESO': '<span class="badge in-progress">🔧 En Proceso</span>',
+            'PENDIENTE_PAGO': '<span class="badge payment">💳 Pendiente Pago</span>',
+            'FINALIZADA': '<span class="badge completed">✅ Finalizada</span>',
+            'CANCELADA': '<span class="badge cancelled">❌ Cancelada</span>'
+        };
+        const estadoBadge = estadoBadgeMap[tarea.estado] || '';
+
+        const aprobacionBadge = tarea.aprobado_admin !== false 
+            ? '<span class="badge approved">✅ Aprobada</span>' 
+            : '<span class="badge pending">⏳ Pendiente/Rechazada</span>';
+
+        // Manejar ubicación
+        let ubicacionTexto = 'No especificada';
+        if (tarea.ubicacion) {
+            if (typeof tarea.ubicacion === 'string') {
+                ubicacionTexto = tarea.ubicacion;
+            } else if (tarea.ubicacion.direccion) {
+                ubicacionTexto = tarea.ubicacion.direccion;
+            } else if (tarea.ubicacion.ciudad) {
+                ubicacionTexto = tarea.ubicacion.ciudad;
+            }
+        }
+
+        html += `
+            <div class="admin-item-card">
+                <div class="item-header">
+                    <h4>${tarea.tipo_servicio || 'Sin tipo'} - $${parseFloat(tarea.monto_total_acordado || 0).toLocaleString('es-AR')}</h4>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        ${estadoBadge}
+                        ${aprobacionBadge}
+                    </div>
+                </div>
+                <div class="item-details">
+                    <p><strong>Descripción:</strong> ${tarea.descripcion || 'Sin descripción'}</p>
+                    <p><strong>Cliente:</strong> ${tarea.cliente ? `${tarea.cliente.nombre} ${tarea.cliente.apellido} (${tarea.cliente.email})` : 'N/A'}</p>
+                    <p><strong>Tasker:</strong> ${tarea.tasker ? `${tarea.tasker.nombre} ${tarea.tasker.apellido} (${tarea.tasker.email})` : 'No asignado'}</p>
+                    <p><strong>Ubicación:</strong> ${ubicacionTexto}</p>
+                    <p><strong>Fecha requerida:</strong> ${tarea.fecha_hora_requerida ? new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES') : 'No especificada'}</p>
+                    <p><strong>Creación:</strong> ${tarea.createdAt ? new Date(tarea.createdAt).toLocaleDateString('es-ES') : 'N/A'}</p>
+                </div>
+                <div class="item-actions">
+                    ${tarea.aprobado_admin !== false ? `
+                        <button class="btn-secondary" onclick="rechazarTarea(${tarea.id})">❌ Rechazar</button>
+                    ` : `
+                        <button class="btn-primary" onclick="aprobarTarea(${tarea.id})">✅ Aprobar</button>
+                    `}
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    listContainer.innerHTML = html;
 }
 
 // ========== FUNCIONES DE CALIFICACIONES ==========
