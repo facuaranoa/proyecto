@@ -36,13 +36,34 @@ const authenticateToken = async (req, res, next) => {
 
     // Buscar el usuario (puede ser admin, cliente o tasker)
     let usuario = null;
+    let esUsuarioDual = false;
+    let usuarioCliente = null;
+    let usuarioTasker = null;
     
     if (decoded.tipo === 'admin') {
       usuario = await Admin.findByPk(decoded.id);
     } else if (decoded.tipo === 'cliente') {
-      usuario = await UsuarioCliente.findByPk(decoded.id);
+      usuarioCliente = await UsuarioCliente.findByPk(decoded.id);
+      usuario = usuarioCliente;
+      
+      // Verificar si también es tasker (usuario dual)
+      if (usuarioCliente) {
+        usuarioTasker = await Tasker.findOne({ where: { email: usuarioCliente.email } });
+        if (usuarioTasker) {
+          esUsuarioDual = true;
+        }
+      }
     } else if (decoded.tipo === 'tasker') {
-      usuario = await Tasker.findByPk(decoded.id);
+      usuarioTasker = await Tasker.findByPk(decoded.id);
+      usuario = usuarioTasker;
+      
+      // Verificar si también es cliente (usuario dual)
+      if (usuarioTasker) {
+        usuarioCliente = await UsuarioCliente.findOne({ where: { email: usuarioTasker.email } });
+        if (usuarioCliente) {
+          esUsuarioDual = true;
+        }
+      }
     }
 
     if (!usuario) {
@@ -52,11 +73,28 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
+    // Si es usuario dual, verificar el header X-User-Mode para determinar el modo activo
+    let tipoActivo = decoded.tipo;
+    if (esUsuarioDual) {
+      const userMode = req.headers['x-user-mode'] || req.headers['X-User-Mode'];
+      if (userMode === 'tasker' && usuarioTasker) {
+        tipoActivo = 'tasker';
+        usuario = usuarioTasker; // Usar el tasker como usuario activo
+      } else if (userMode === 'cliente' && usuarioCliente) {
+        tipoActivo = 'cliente';
+        usuario = usuarioCliente; // Usar el cliente como usuario activo
+      }
+      // Si no se especifica modo, usar el del token (por defecto)
+    }
+
     // Agregar información del usuario al request para usarla en los controllers
     req.user = {
       id: usuario.id,
       email: usuario.email,
-      tipo: decoded.tipo // 'cliente' o 'tasker'
+      tipo: tipoActivo, // Tipo activo según el modo seleccionado
+      esUsuarioDual: esUsuarioDual,
+      cliente_id: esUsuarioDual && usuarioCliente ? usuarioCliente.id : null,
+      tasker_id: esUsuarioDual && usuarioTasker ? usuarioTasker.id : null
     };
 
     // Continuar con el siguiente middleware o controller

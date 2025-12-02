@@ -5,6 +5,7 @@
  */
 
 const Tasker = require('../models/Tasker');
+const Categoria = require('../models/Categoria');
 
 /**
  * Listar Taskers
@@ -622,6 +623,163 @@ const getUserDetails = async (req, res) => {
   }
 };
 
+/**
+ * ============================================================================
+ * GESTIÓN DE CATEGORÍAS
+ * ============================================================================
+ */
+
+/**
+ * Obtener todas las categorías
+ * GET /api/admin/categorias
+ */
+const getCategorias = async (req, res) => {
+  try {
+    const { incluir_inactivas } = req.query;
+    
+    let categorias;
+    if (incluir_inactivas === 'true') {
+      categorias = await Categoria.findAllIncludingInactive();
+    } else {
+      categorias = await Categoria.findAll();
+    }
+
+    res.json({
+      success: true,
+      categorias
+    });
+  } catch (error) {
+    console.error('Error al obtener categorías:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Actualizar todas las categorías
+ * PUT /api/admin/categorias
+ */
+const updateCategorias = async (req, res) => {
+  try {
+    const { categorias } = req.body;
+
+    if (!Array.isArray(categorias)) {
+      return res.status(400).json({
+        error: 'Datos inválidos',
+        message: 'categorias debe ser un array'
+      });
+    }
+
+    const categoriasActualizadas = await Categoria.updateAll(categorias);
+
+    res.json({
+      success: true,
+      message: 'Categorías actualizadas exitosamente',
+      categorias: categoriasActualizadas.categorias
+    });
+  } catch (error) {
+    console.error('Error al actualizar categorías:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Crear nueva categoría
+ * POST /api/admin/categorias
+ */
+const createCategoria = async (req, res) => {
+  try {
+    const categoriaData = req.body;
+
+    if (!categoriaData.nombre) {
+      return res.status(400).json({
+        error: 'Datos inválidos',
+        message: 'El nombre de la categoría es obligatorio'
+      });
+    }
+
+    const nuevaCategoria = await Categoria.create(categoriaData);
+
+    res.status(201).json({
+      success: true,
+      message: 'Categoría creada exitosamente',
+      categoria: nuevaCategoria
+    });
+  } catch (error) {
+    console.error('Error al crear categoría:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Actualizar una categoría
+ * PUT /api/admin/categorias/:id
+ */
+const updateCategoria = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const categoriaData = req.body;
+
+    const categoriaActualizada = await Categoria.update(id, categoriaData);
+
+    res.json({
+      success: true,
+      message: 'Categoría actualizada exitosamente',
+      categoria: categoriaActualizada
+    });
+  } catch (error) {
+    console.error('Error al actualizar categoría:', error);
+    if (error.message === 'Categoría no encontrada') {
+      return res.status(404).json({
+        error: 'Categoría no encontrada',
+        message: error.message
+      });
+    }
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Eliminar una categoría (marcar como inactiva)
+ * DELETE /api/admin/categorias/:id
+ */
+const deleteCategoria = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const categoriaEliminada = await Categoria.delete(id);
+
+    res.json({
+      success: true,
+      message: 'Categoría eliminada exitosamente',
+      categoria: categoriaEliminada
+    });
+  } catch (error) {
+    console.error('Error al eliminar categoría:', error);
+    if (error.message === 'Categoría no encontrada') {
+      return res.status(404).json({
+        error: 'Categoría no encontrada',
+        message: error.message
+      });
+    }
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   listTaskers,
   verifyTasker,
@@ -631,7 +789,13 @@ module.exports = {
   blockUser,
   verifyCliente,
   verifyTarea,
-  getUserDetails
+  getUserDetails,
+  // Categorías
+  getCategorias,
+  updateCategorias,
+  createCategoria,
+  updateCategoria,
+  deleteCategoria
 };
 
 

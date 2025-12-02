@@ -15,15 +15,7 @@ const updateProfile = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Verificar que el usuario autenticado sea el mismo tasker
-    if (req.user.id !== parseInt(id)) {
-      return res.status(403).json({
-        error: 'Acceso denegado',
-        message: 'Solo puedes actualizar tu propio perfil'
-      });
-    }
-
-    // Verificar que el usuario sea un tasker
+    // Verificar que el usuario sea un tasker (incluyendo usuarios duales en modo tasker)
     if (req.user.tipo !== 'tasker') {
       return res.status(403).json({
         error: 'Acceso denegado',
@@ -31,8 +23,19 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    // Buscar el tasker
-    const tasker = await Tasker.findByPk(id);
+    // Para usuarios duales, usar tasker_id; para taskers puros, usar id
+    const taskerId = req.user.esUsuarioDual ? req.user.tasker_id : req.user.id;
+    
+    // Verificar que el usuario autenticado sea el mismo tasker
+    if (taskerId !== parseInt(id)) {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo puedes actualizar tu propio perfil'
+      });
+    }
+
+    // Buscar el tasker usando el taskerId
+    const tasker = await Tasker.findByPk(taskerId);
     if (!tasker) {
       return res.status(404).json({
         error: 'Tasker no encontrado',
@@ -61,17 +64,17 @@ const updateProfile = async (req, res) => {
 
     // Retornar el tasker actualizado (sin password_hash)
     const taskerResponse = {
-      id: tasker.id,
-      email: tasker.email,
-      nombre: tasker.nombre,
-      apellido: tasker.apellido,
+        id: tasker.id,
+        email: tasker.email,
+        nombre: tasker.nombre,
+        apellido: tasker.apellido,
       telefono: tasker.telefono,
       cuit: tasker.cuit,
       monotributista_check: tasker.monotributista_check,
       dni_url: tasker.dni_url,
       matricula_url: tasker.matricula_url,
       licencia_conducir_url: tasker.licencia_conducir_url,
-      disponible: tasker.disponible,
+        disponible: tasker.disponible,
       aprobado_admin: tasker.aprobado_admin,
       skills: tasker.skills || [],
       licencias: tasker.licencias || [],

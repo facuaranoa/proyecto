@@ -122,7 +122,9 @@ const registerTasker = async (req, res) => {
       telefono,
       cuit,
       monotributista_check,
-      terminos_aceptados
+      terminos_aceptados,
+      categoria_principal,
+      especialidades
     } = req.body;
 
     // Validaciones básicas
@@ -186,7 +188,9 @@ const registerTasker = async (req, res) => {
       matricula_url,
       licencia_conducir_url,
       aprobado_admin: false, // Por defecto no está aprobado
-      disponible: true
+      disponible: true,
+      categoria_principal: categoria_principal || null,
+      especialidades: Array.isArray(especialidades) ? especialidades : (especialidades ? [especialidades] : [])
     });
 
     // Generar token JWT
@@ -216,6 +220,101 @@ const registerTasker = async (req, res) => {
 };
 
 /**
+ * Registrar cliente como tasker (usuario dual)
+ * POST /api/auth/register/cliente-as-tasker
+ * Permite que un cliente existente se registre también como tasker
+ */
+const registerClienteAsTasker = async (req, res) => {
+  try {
+    const {
+      email,
+      password,
+      categoria_principal,
+      especialidades,
+      cuit,
+      monotributista_check
+    } = req.body;
+
+    // Validaciones básicas
+    if (!email || !password) {
+      return res.status(400).json({
+        error: 'Campos requeridos faltantes',
+        message: 'Email y password son obligatorios'
+      });
+    }
+
+    // Verificar que el cliente existe
+    const cliente = await UsuarioCliente.findOne({ where: { email } });
+    if (!cliente) {
+      return res.status(404).json({
+        error: 'Cliente no encontrado',
+        message: 'No existe un cliente con ese email'
+      });
+    }
+
+    // Verificar contraseña del cliente
+    const passwordMatch = await cliente.comparePassword(password);
+    if (!passwordMatch) {
+      return res.status(401).json({
+        error: 'Contraseña incorrecta',
+        message: 'La contraseña no coincide con la cuenta de cliente'
+      });
+    }
+
+    // Verificar si ya es tasker
+    const taskerExistente = await Tasker.findOne({ where: { email } });
+    if (taskerExistente) {
+      return res.status(400).json({
+        error: 'Ya es tasker',
+        message: 'Este email ya está registrado como tasker'
+      });
+    }
+
+    // Obtener paths de archivos subidos (si existen)
+    const dni_url = req.files?.dni ? getFileUrl(req.files.dni[0].filename) : null;
+    const matricula_url = req.files?.matricula ? getFileUrl(req.files.matricula[0].filename) : null;
+    const licencia_conducir_url = req.files?.licencia ? getFileUrl(req.files.licencia[0].filename) : null;
+
+    // Crear tasker con los mismos datos del cliente
+    const nuevoTasker = await Tasker.create({
+      email: cliente.email,
+      password_hash: cliente.password_hash, // Usar la misma contraseña (ya está encriptada)
+      nombre: cliente.nombre,
+      apellido: cliente.apellido,
+      telefono: cliente.telefono,
+      cuit: cuit || null,
+      monotributista_check: monotributista_check === 'true' || monotributista_check === true,
+      terminos_aceptados: true,
+      dni_url,
+      matricula_url,
+      licencia_conducir_url,
+      aprobado_admin: false,
+      disponible: true,
+      categoria_principal: categoria_principal || null,
+      especialidades: Array.isArray(especialidades) ? especialidades : (especialidades ? [especialidades] : [])
+    });
+
+    res.status(201).json({
+      message: 'Registrado como tasker exitosamente. Pendiente de aprobación por administrador.',
+      tasker: {
+        id: nuevoTasker.id,
+        email: nuevoTasker.email,
+        nombre: nuevoTasker.nombre,
+        apellido: nuevoTasker.apellido,
+        aprobado_admin: nuevoTasker.aprobado_admin,
+        categoria_principal: nuevoTasker.categoria_principal
+      }
+    });
+  } catch (error) {
+    console.error('Error al registrar cliente como tasker:', error);
+    res.status(500).json({
+      error: 'Error al registrar como tasker',
+      message: error.message
+    });
+  }
+};
+
+/**
  * Login (para Cliente o Tasker)
  * POST /api/auth/login
  */
@@ -234,15 +333,41 @@ const login = async (req, res) => {
     // Buscar usuario (primero como admin, luego cliente, luego tasker)
     let usuario = await Admin.findOne({ where: { email } });
     let tipo = 'admin';
+    let esUsuarioDual = false;
+    let usuarioCliente = null;
+    let usuarioTasker = null;
 
     if (!usuario) {
-      usuario = await UsuarioCliente.findOne({ where: { email } });
-      tipo = 'cliente';
-    }
-
-    if (!usuario) {
-      usuario = await Tasker.findOne({ where: { email } });
-      tipo = 'tasker';
+      // Buscar como cliente
+      usuarioCliente = await UsuarioCliente.findOne({ where: { email } });
+      // Buscar como tasker
+      usuarioTasker = await Tasker.findOne({ where: { email } });
+      
+      // Debug: mostrar qué se encontró
+      console.log('🔍 Login - Buscando usuario:', email);
+      console.log('🔍 Login - Cliente encontrado:', usuarioCliente ? `Sí (ID: ${usuarioCliente.id})` : 'No');
+      console.log('🔍 Login - Tasker encontrado:', usuarioTasker ? `Sí (ID: ${usuarioTasker.id})` : 'No');
+      
+      // Si existe en ambos, es usuario dual
+      if (usuarioCliente && usuarioTasker) {
+        esUsuarioDual = true;
+        console.log('✅ Usuario dual detectado:', {
+          cliente_id: usuarioCliente.id,
+          tasker_id: usuarioTasker.id,
+          email: email
+        });
+        // Usar el cliente como usuario principal, pero incluir info del tasker
+        usuario = usuarioCliente;
+        tipo = 'cliente';
+      } else if (usuarioCliente) {
+        console.log('👤 Solo cliente encontrado');
+        usuario = usuarioCliente;
+        tipo = 'cliente';
+      } else if (usuarioTasker) {
+        console.log('🔧 Solo tasker encontrado');
+        usuario = usuarioTasker;
+        tipo = 'tasker';
+      }
     }
 
     if (!usuario) {
@@ -252,16 +377,31 @@ const login = async (req, res) => {
       });
     }
 
-    // Verificar contraseña
+    // Verificar contraseña (si es dual, verificar con el que se encontró primero)
     const passwordMatch = await usuario.comparePassword(password);
     if (!passwordMatch) {
-      return res.status(401).json({
-        error: 'Credenciales inválidas',
-        message: 'Email o contraseña incorrectos'
-      });
+      // Si es dual, intentar con el otro
+      if (esUsuarioDual) {
+        const otroUsuario = usuario === usuarioCliente ? usuarioTasker : usuarioCliente;
+        const otroPasswordMatch = await otroUsuario.comparePassword(password);
+        if (!otroPasswordMatch) {
+          return res.status(401).json({
+            error: 'Credenciales inválidas',
+            message: 'Email o contraseña incorrectos'
+          });
+        }
+        // Si la contraseña coincide con el otro, usar ese como principal
+        usuario = otroUsuario;
+        tipo = usuario === usuarioTasker ? 'tasker' : 'cliente';
+      } else {
+        return res.status(401).json({
+          error: 'Credenciales inválidas',
+          message: 'Email o contraseña incorrectos'
+        });
+      }
     }
 
-    // Generar token JWT
+    // Generar token JWT (usar el ID del usuario principal)
     const token = generateToken(usuario, tipo);
 
     // Preparar respuesta según el tipo de usuario
@@ -270,18 +410,39 @@ const login = async (req, res) => {
       email: usuario.email,
       nombre: usuario.nombre,
       apellido: usuario.apellido,
-      telefono: usuario.telefono, // Incluir teléfono para todos los tipos
-      tipo: tipo
+      telefono: usuario.telefono,
+      tipo: tipo,
+      esUsuarioDual: esUsuarioDual
     };
+    
+    // Debug: mostrar respuesta que se enviará
+    console.log('📤 Login - Respuesta preparada:', {
+      tipo: tipo,
+      esUsuarioDual: esUsuarioDual,
+      email: usuarioResponse.email
+    });
 
-    // Agregar campos específicos según el tipo
-    if (tipo === 'admin') {
-      // Admin no tiene campos adicionales por ahora
-    } else if (tipo === 'tasker') {
-      usuarioResponse.aprobado_admin = usuario.aprobado_admin;
-      usuarioResponse.disponible = usuario.disponible;
+    // Si es usuario dual, incluir información de ambos perfiles
+    if (esUsuarioDual) {
+      usuarioResponse.cliente_id = usuarioCliente.id;
+      usuarioResponse.tasker_id = usuarioTasker.id;
+      usuarioResponse.ubicacion_default = usuarioCliente.ubicacion_default;
+      usuarioResponse.aprobado_admin_tasker = usuarioTasker.aprobado_admin;
+      usuarioResponse.disponible_tasker = usuarioTasker.disponible;
+      usuarioResponse.categoria_principal = usuarioTasker.categoria_principal;
+      usuarioResponse.especialidades = usuarioTasker.especialidades;
     } else {
-      usuarioResponse.ubicacion_default = usuario.ubicacion_default;
+      // Agregar campos específicos según el tipo
+      if (tipo === 'admin') {
+        // Admin no tiene campos adicionales por ahora
+      } else if (tipo === 'tasker') {
+        usuarioResponse.aprobado_admin = usuario.aprobado_admin;
+        usuarioResponse.disponible = usuario.disponible;
+        usuarioResponse.categoria_principal = usuario.categoria_principal;
+        usuarioResponse.especialidades = usuario.especialidades;
+      } else {
+        usuarioResponse.ubicacion_default = usuario.ubicacion_default;
+      }
     }
 
     res.json({
@@ -469,6 +630,7 @@ const resetPassword = async (req, res) => {
 module.exports = {
   registerCliente,
   registerTasker,
+  registerClienteAsTasker,
   login,
   forgotPassword,
   resetPassword

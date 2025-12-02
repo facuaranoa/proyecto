@@ -15,15 +15,7 @@ const updateProfile = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Verificar que el usuario autenticado sea el mismo cliente
-    if (req.user.id !== parseInt(id)) {
-      return res.status(403).json({
-        error: 'Acceso denegado',
-        message: 'Solo puedes actualizar tu propio perfil'
-      });
-    }
-
-    // Verificar que el usuario sea un cliente
+    // Verificar que el usuario sea un cliente (incluyendo usuarios duales en modo cliente)
     if (req.user.tipo !== 'cliente') {
       return res.status(403).json({
         error: 'Acceso denegado',
@@ -31,8 +23,19 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    // Buscar el cliente
-    const cliente = await UsuarioCliente.findByPk(id);
+    // Para usuarios duales, usar cliente_id; para clientes puros, usar id
+    const clienteId = req.user.esUsuarioDual ? req.user.cliente_id : req.user.id;
+    
+    // Verificar que el usuario autenticado sea el mismo cliente
+    if (clienteId !== parseInt(id)) {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo puedes actualizar tu propio perfil'
+      });
+    }
+
+    // Buscar el cliente usando el clienteId
+    const cliente = await UsuarioCliente.findByPk(clienteId);
     if (!cliente) {
       return res.status(404).json({
         error: 'Cliente no encontrado',

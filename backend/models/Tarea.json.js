@@ -7,6 +7,7 @@
 
 const { readFile, writeFile } = require('../config/database-json');
 const UsuarioCliente = require('./UsuarioCliente.json');
+const Tasker = require('./Tasker.json');
 
 const FILE_KEY = 'tareas';
 
@@ -76,7 +77,11 @@ class Tarea {
         if (include.model && include.as === 'cliente') {
           for (const tarea of tareas) {
             if (tarea.cliente_id) {
-              const cliente = await UsuarioCliente.findByPk(tarea.cliente_id);
+              // Buscar primero en UsuarioCliente, luego en Tasker
+              let cliente = await UsuarioCliente.findByPk(tarea.cliente_id);
+              if (!cliente) {
+                cliente = await Tasker.findByPk(tarea.cliente_id);
+              }
               if (cliente) {
                 const clienteData = {};
                 include.attributes.forEach(attr => {
@@ -213,7 +218,11 @@ class Tarea {
           for (const tarea of tareasPaginadas) {
             if (tarea.cliente_id) {
               try {
-                const cliente = await UsuarioCliente.findByPk(tarea.cliente_id);
+                // Buscar primero en UsuarioCliente, luego en Tasker
+                let cliente = await UsuarioCliente.findByPk(tarea.cliente_id);
+                if (!cliente) {
+                  cliente = await Tasker.findByPk(tarea.cliente_id);
+                }
                 if (cliente) {
                   const clienteData = {};
                   if (include.attributes && Array.isArray(include.attributes)) {

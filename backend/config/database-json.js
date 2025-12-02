@@ -19,7 +19,9 @@ const FILES = {
   solicitudesTareas: path.join(DATA_DIR, 'solicitudesTareas.json'),
   admins: path.join(DATA_DIR, 'admins.json'),
   calificaciones: path.join(DATA_DIR, 'calificaciones.json'),
-  passwordResetTokens: path.join(DATA_DIR, 'passwordResetTokens.json')
+  passwordResetTokens: path.join(DATA_DIR, 'passwordResetTokens.json'),
+  categorias: path.join(DATA_DIR, 'categorias.json'),
+  mensajes: path.join(DATA_DIR, 'mensajes.json')
 };
 
 // Asegurar que el directorio existe
@@ -40,10 +42,18 @@ const readFile = async (fileKey) => {
     }
     await ensureDataDir();
     const data = await fs.readFile(filePath, 'utf8');
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    // Si es categorias, retornar el objeto completo, sino retornar el array
+    if (fileKey === 'categorias') {
+      return parsed;
+    }
+    return parsed;
   } catch (error) {
-    // Si el archivo no existe, retornar array vacío
+    // Si el archivo no existe, retornar array vacío o estructura por defecto
     if (error.code === 'ENOENT') {
+      if (fileKey === 'categorias') {
+        return { categorias: [], ultima_actualizacion: new Date().toISOString() };
+      }
       return [];
     }
     throw error;
@@ -58,6 +68,10 @@ const writeFile = async (fileKey, data) => {
       throw new Error(`Archivo no encontrado en FILES: ${fileKey}`);
     }
     await ensureDataDir();
+    // Si es categorias, actualizar la fecha de última actualización
+    if (fileKey === 'categorias' && typeof data === 'object' && !Array.isArray(data)) {
+      data.ultima_actualizacion = new Date().toISOString();
+    }
     await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
     return true;
   } catch (error) {

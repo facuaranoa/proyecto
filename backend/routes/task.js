@@ -6,8 +6,14 @@
 
 const express = require('express');
 const router = express.Router();
-const { createTask, getUserTasks, getAvailableTasks, applyToTask, getTaskApplications, acceptApplication, getMyAssignedTasks, startTask, completeTask, confirmPayment, confirmPaymentReceived } = require('../controllers/taskController');
+const { createTask, getUserTasks, getAvailableTasks, applyToTask, getTaskApplications, acceptApplication, getMyAssignedTasks, startTask, completeTask, confirmPayment, confirmPaymentReceived, getCategorias } = require('../controllers/taskController');
 const { authenticateToken } = require('../middleware/auth');
+
+/**
+ * GET /api/task/categorias
+ * Obtener categorías activas (endpoint público, no requiere autenticación)
+ */
+router.get('/categorias', getCategorias);
 
 /**
  * POST /api/task/create

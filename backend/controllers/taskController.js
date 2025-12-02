@@ -9,12 +9,13 @@
 // const { sequelize } = require('../config/database');
 const Tarea = require('../models/Tarea');
 const UsuarioCliente = require('../models/UsuarioCliente');
+const Categoria = require('../models/Categoria');
 const { checkAndAutoConfirmTask } = require('../utils/autoConfirmPayment');
 
 /**
  * Crear nueva Tarea
  * POST /api/task/create
- * Solo clientes pueden crear tareas
+ * Clientes y taskers pueden crear tareas (los taskers también pueden publicar trabajos)
  */
 const createTask = async (req, res) => {
   try {
@@ -27,11 +28,11 @@ const createTask = async (req, res) => {
       monto_total_acordado
     } = req.body;
 
-    // Verificar que el usuario sea un cliente
-    if (req.user.tipo !== 'cliente') {
+    // Permitir tanto clientes como taskers
+    if (req.user.tipo !== 'cliente' && req.user.tipo !== 'tasker') {
       return res.status(403).json({
         error: 'Acceso denegado',
-        message: 'Solo los clientes pueden crear tareas'
+        message: 'Solo los clientes y taskers pueden crear tareas'
       });
     }
 
@@ -43,11 +44,13 @@ const createTask = async (req, res) => {
       });
     }
 
-    // Validar tipo de servicio
-    if (!['EXPRESS', 'ESPECIALISTA'].includes(tipo_servicio)) {
+    // Validar tipo de servicio usando el modelo de categorías
+    const Categoria = require('../models/Categoria');
+    const isValidTipo = await Categoria.isValidTipoServicio(tipo_servicio);
+    if (!isValidTipo) {
       return res.status(400).json({
         error: 'Tipo de servicio inválido',
-        message: 'tipo_servicio debe ser EXPRESS o ESPECIALISTA'
+        message: 'tipo_servicio debe ser una categoría válida (EXPRESS, OFICIOS, SERVICIOS_ESPECIALIZADOS, PROFESIONALES)'
       });
     }
 
@@ -77,13 +80,42 @@ const createTask = async (req, res) => {
       });
     }
 
-    // Verificar que el cliente existe
-    const cliente = await UsuarioCliente.findByPk(req.user.id);
-    if (!cliente) {
-      return res.status(404).json({
-        error: 'Cliente no encontrado',
-        message: 'No se encontró el cliente autenticado'
-      });
+    // Determinar el cliente_id según el tipo de usuario
+    // Para usuarios duales, usar cliente_id si está en modo cliente, o cliente_id si está en modo tasker (ambos pueden crear tareas)
+    let clienteId;
+    if (req.user.tipo === 'cliente') {
+      // Para usuarios duales, usar cliente_id; para clientes puros, usar id
+      clienteId = req.user.esUsuarioDual ? req.user.cliente_id : req.user.id;
+      const cliente = await UsuarioCliente.findByPk(clienteId);
+      if (!cliente) {
+        return res.status(404).json({
+          error: 'Cliente no encontrado',
+          message: 'No se encontró el cliente autenticado'
+        });
+      }
+    } else if (req.user.tipo === 'tasker') {
+      // Para usuarios duales en modo tasker, usar cliente_id; para taskers puros, buscar si también es cliente
+      if (req.user.esUsuarioDual) {
+        clienteId = req.user.cliente_id;
+      } else {
+        const Tasker = require('../models/Tasker');
+        const tasker = await Tasker.findByPk(req.user.id);
+        if (!tasker) {
+          return res.status(404).json({
+            error: 'Tasker no encontrado',
+            message: 'No se encontró el tasker autenticado'
+          });
+        }
+        // Los taskers también pueden crear tareas (como clientes)
+        // Buscar si el tasker también es cliente
+        const clienteAsociado = await UsuarioCliente.findOne({ where: { email: tasker.email } });
+        if (clienteAsociado) {
+          clienteId = clienteAsociado.id;
+        } else {
+          // Si no es cliente, usar su propio ID (pero esto no debería pasar normalmente)
+          clienteId = tasker.id;
+        }
+      }
     }
 
     // Calcular comisión (5% según definición de negocio)
@@ -94,7 +126,7 @@ const createTask = async (req, res) => {
 
     // Crear la tarea
     const nuevaTarea = await Tarea.create({
-      cliente_id: req.user.id,
+      cliente_id: clienteId,
       tasker_id: null, // Aún no está asignada
       tipo_servicio,
       descripcion,
@@ -136,22 +168,24 @@ const createTask = async (req, res) => {
 /**
  * Obtener tareas del usuario actual
  * GET /api/task/my-tasks
- * Solo el cliente puede ver sus propias tareas
+ * Clientes y taskers pueden ver las tareas que crearon
  */
 const getUserTasks = async (req, res) => {
   try {
-    // Verificar que el usuario sea un cliente
-    if (req.user.tipo !== 'cliente') {
+    // Permitir tanto clientes como taskers
+    if (req.user.tipo !== 'cliente' && req.user.tipo !== 'tasker') {
       return res.status(403).json({
         error: 'Acceso denegado',
-        message: 'Solo los clientes pueden ver sus tareas'
+        message: 'Solo los clientes y taskers pueden ver sus tareas'
       });
     }
 
-    // Buscar todas las tareas del cliente
+    // Buscar todas las tareas del usuario (cliente o tasker que las creó)
+    // Para usuarios duales, usar cliente_id; para clientes puros, usar id
+    const clienteId = req.user.esUsuarioDual && req.user.tipo === 'cliente' ? req.user.cliente_id : req.user.id;
     const tareas = await Tarea.findAll({
       where: {
-        cliente_id: req.user.id
+        cliente_id: clienteId
       },
       order: [['createdAt', 'DESC']], // Más recientes primero
       attributes: [
@@ -182,7 +216,7 @@ const getUserTasks = async (req, res) => {
 const getAvailableTasks = async (req, res) => {
   try {
 
-    // Verificar que el usuario sea un tasker aprobado
+    // Verificar que el usuario sea un tasker aprobado (incluyendo usuarios duales en modo tasker)
     if (req.user.tipo !== 'tasker') {
       return res.status(403).json({
         error: 'Acceso denegado',
@@ -191,8 +225,10 @@ const getAvailableTasks = async (req, res) => {
     }
 
     // Verificar que el tasker esté aprobado
+    // Para usuarios duales, usar tasker_id; para taskers puros, usar id
     const Tasker = require('../models/Tasker');
-    const tasker = await Tasker.findByPk(req.user.id);
+    const taskerId = req.user.esUsuarioDual ? req.user.tasker_id : req.user.id;
+    const tasker = await Tasker.findByPk(taskerId);
     if (!tasker || !tasker.aprobado_admin) {
       return res.status(403).json({
         error: 'Acceso denegado',
@@ -280,14 +316,14 @@ const getAvailableTasks = async (req, res) => {
       ]
     });
 
-    // Verificar si el tasker ya aplicó a cada tarea
+    // Verificar si el tasker ya aplicó a cada tarea (usar el taskerId ya declarado arriba)
     const SolicitudTarea = require('../models/SolicitudTarea');
     const tareasConAplicacion = await Promise.all(
       tareasDisponibles.map(async (tarea) => {
         const aplicacion = await SolicitudTarea.findOne({
           where: {
             tarea_id: tarea.id,
-            tasker_id: req.user.id,
+            tasker_id: taskerId,
             tipo: 'APLICACION'
           }
         });
@@ -341,7 +377,7 @@ const applyToTask = async (req, res) => {
   try {
     const tareaId = parseInt(req.params.id);
     
-    // Verificar que el usuario sea un tasker
+    // Verificar que el usuario sea un tasker (incluyendo usuarios duales en modo tasker)
     if (req.user.tipo !== 'tasker') {
       return res.status(403).json({
         error: 'Acceso denegado',
@@ -350,8 +386,10 @@ const applyToTask = async (req, res) => {
     }
 
     // Verificar que el tasker esté aprobado
+    // Para usuarios duales, usar tasker_id; para taskers puros, usar id
     const Tasker = require('../models/Tasker');
-    const tasker = await Tasker.findByPk(req.user.id);
+    const taskerId = req.user.esUsuarioDual ? req.user.tasker_id : req.user.id;
+    const tasker = await Tasker.findByPk(taskerId);
     if (!tasker || !tasker.aprobado_admin) {
       return res.status(403).json({
         error: 'Acceso denegado',
@@ -375,12 +413,12 @@ const applyToTask = async (req, res) => {
       });
     }
 
-    // Verificar que el tasker no haya aplicado ya
+    // Verificar que el tasker no haya aplicado ya (usar el taskerId ya declarado arriba)
     const SolicitudTarea = require('../models/SolicitudTarea');
     const aplicacionExistente = await SolicitudTarea.findOne({
       where: {
         tarea_id: tareaId,
-        tasker_id: req.user.id,
+        tasker_id: taskerId,
         tipo: 'APLICACION'
       }
     });
@@ -392,10 +430,10 @@ const applyToTask = async (req, res) => {
       });
     }
 
-    // Crear la aplicación
+    // Crear la aplicación (usar el taskerId ya declarado arriba)
     const aplicacion = await SolicitudTarea.create({
       tarea_id: tareaId,
-      tasker_id: req.user.id,
+      tasker_id: taskerId,
       cliente_id: tarea.cliente_id,
       tipo: 'APLICACION',
       estado: 'PENDIENTE'
@@ -420,19 +458,19 @@ const applyToTask = async (req, res) => {
 };
 
 /**
- * Obtener aplicaciones a las tareas del cliente
+ * Obtener aplicaciones a las tareas del usuario
  * GET /api/task/applications/:tareaId
- * Solo el cliente dueño de la tarea puede ver las aplicaciones
+ * Clientes y taskers pueden ver aplicaciones a sus tareas
  */
 const getTaskApplications = async (req, res) => {
   try {
     const tareaId = parseInt(req.params.tareaId);
 
-    // Verificar que el usuario sea un cliente
-    if (req.user.tipo !== 'cliente') {
+    // Permitir tanto clientes como taskers
+    if (req.user.tipo !== 'cliente' && req.user.tipo !== 'tasker') {
       return res.status(403).json({
         error: 'Acceso denegado',
-        message: 'Solo los clientes pueden ver aplicaciones a sus tareas'
+        message: 'Solo los clientes y taskers pueden ver aplicaciones a sus tareas'
       });
     }
 
@@ -445,7 +483,9 @@ const getTaskApplications = async (req, res) => {
       });
     }
 
-    if (tarea.cliente_id !== req.user.id) {
+    // Para usuarios duales, usar cliente_id; para clientes puros, usar id
+    const clienteId = req.user.esUsuarioDual && req.user.tipo === 'cliente' ? req.user.cliente_id : req.user.id;
+    if (tarea.cliente_id !== clienteId) {
       return res.status(403).json({
         error: 'Acceso denegado',
         message: 'Solo puedes ver aplicaciones de tus propias tareas'
@@ -503,19 +543,19 @@ const getTaskApplications = async (req, res) => {
 };
 
 /**
- * Cliente acepta una aplicación (elige un tasker)
+ * Usuario acepta una aplicación (elige un tasker)
  * POST /api/task/accept-application/:applicationId
- * Solo el cliente dueño de la tarea puede aceptar aplicaciones
+ * Clientes y taskers pueden aceptar aplicaciones a sus tareas
  */
 const acceptApplication = async (req, res) => {
   try {
     const applicationId = parseInt(req.params.applicationId);
 
-    // Verificar que el usuario sea un cliente
-    if (req.user.tipo !== 'cliente') {
+    // Permitir tanto clientes como taskers
+    if (req.user.tipo !== 'cliente' && req.user.tipo !== 'tasker') {
       return res.status(403).json({
         error: 'Acceso denegado',
-        message: 'Solo los clientes pueden aceptar aplicaciones'
+        message: 'Solo los clientes y taskers pueden aceptar aplicaciones'
       });
     }
 
@@ -547,7 +587,9 @@ const acceptApplication = async (req, res) => {
       });
     }
 
-    if (tarea.cliente_id !== req.user.id) {
+    // Para usuarios duales, usar cliente_id; para clientes puros, usar id
+    const clienteId = req.user.esUsuarioDual && req.user.tipo === 'cliente' ? req.user.cliente_id : req.user.id;
+    if (tarea.cliente_id !== clienteId) {
       return res.status(403).json({
         error: 'Acceso denegado',
         message: 'Solo puedes aceptar aplicaciones de tus propias tareas'
@@ -644,7 +686,7 @@ const acceptApplication = async (req, res) => {
  */
 const getMyAssignedTasks = async (req, res) => {
   try {
-    // Verificar que el usuario sea un tasker
+    // Verificar que el usuario sea un tasker (incluyendo usuarios duales en modo tasker)
     if (req.user.tipo !== 'tasker') {
       return res.status(403).json({
         error: 'Acceso denegado',
@@ -652,10 +694,13 @@ const getMyAssignedTasks = async (req, res) => {
       });
     }
 
+    // Para usuarios duales, usar tasker_id; para taskers puros, usar id
+    const taskerId = req.user.esUsuarioDual ? req.user.tasker_id : req.user.id;
+
     // Buscar tareas asignadas a este tasker (TODAS, sin filtrar por estado)
     const todasLasTareas = await Tarea.findAll({
       where: {
-        tasker_id: req.user.id
+        tasker_id: taskerId
       },
       order: [['createdAt', 'DESC']]
     });
@@ -663,11 +708,16 @@ const getMyAssignedTasks = async (req, res) => {
     // Devolver TODAS las tareas (el frontend filtrará según la pestaña)
     const tareas = todasLasTareas;
 
-    // Incluir información del cliente para cada tarea
+    // Incluir información del cliente para cada tarea (puede ser UsuarioCliente o Tasker)
     const UsuarioCliente = require('../models/UsuarioCliente');
+    const Tasker = require('../models/Tasker');
     const tareasConCliente = await Promise.all(
       tareas.map(async (tarea) => {
-        const cliente = await UsuarioCliente.findByPk(tarea.cliente_id);
+        // Buscar primero en UsuarioCliente, luego en Tasker
+        let cliente = await UsuarioCliente.findByPk(tarea.cliente_id);
+        if (!cliente) {
+          cliente = await Tasker.findByPk(tarea.cliente_id);
+        }
         const tareaObj = tarea.id ? tarea : { ...tarea };
         tareaObj.cliente = cliente ? {
           id: cliente.id,
@@ -720,7 +770,9 @@ const startTask = async (req, res) => {
     }
 
     // Verificar que la tarea está asignada a este tasker
-    if (tarea.tasker_id !== req.user.id) {
+    // Para usuarios duales, usar tasker_id; para taskers puros, usar id
+    const taskerId = req.user.esUsuarioDual ? req.user.tasker_id : req.user.id;
+    if (tarea.tasker_id !== taskerId) {
       return res.status(403).json({
         error: 'Acceso denegado',
         message: 'Solo puedes marcar como en proceso las tareas asignadas a ti'
@@ -786,7 +838,9 @@ const completeTask = async (req, res) => {
     }
 
     // Verificar que la tarea está asignada a este tasker
-    if (tarea.tasker_id !== req.user.id) {
+    // Para usuarios duales, usar tasker_id; para taskers puros, usar id
+    const taskerId = req.user.esUsuarioDual ? req.user.tasker_id : req.user.id;
+    if (tarea.tasker_id !== taskerId) {
       return res.status(403).json({
         error: 'Acceso denegado',
         message: 'Solo puedes finalizar las tareas asignadas a ti'
@@ -825,20 +879,20 @@ const completeTask = async (req, res) => {
 };
 
 /**
- * Cliente confirma pago (está conforme con el trabajo)
+ * Usuario confirma pago (está conforme con el trabajo)
  * POST /api/task/confirm-payment/:id
- * Solo el cliente dueño de la tarea puede confirmar el pago
+ * Clientes y taskers pueden confirmar el pago de sus tareas
  * Cambia estado: PENDIENTE_PAGO → FINALIZADA
  */
 const confirmPayment = async (req, res) => {
   try {
     const tareaId = parseInt(req.params.id);
 
-    // Verificar que el usuario sea un cliente
-    if (req.user.tipo !== 'cliente') {
+    // Permitir tanto clientes como taskers
+    if (req.user.tipo !== 'cliente' && req.user.tipo !== 'tasker') {
       return res.status(403).json({
         error: 'Acceso denegado',
-        message: 'Solo los clientes pueden confirmar el pago'
+        message: 'Solo los clientes y taskers pueden confirmar el pago'
       });
     }
 
@@ -852,7 +906,9 @@ const confirmPayment = async (req, res) => {
     }
 
     // Verificar que la tarea pertenece a este cliente
-    if (tarea.cliente_id !== req.user.id) {
+    // Para usuarios duales, usar cliente_id; para clientes puros, usar id
+    const clienteId = req.user.esUsuarioDual && req.user.tipo === 'cliente' ? req.user.cliente_id : req.user.id;
+    if (tarea.cliente_id !== clienteId) {
       return res.status(403).json({
         error: 'Acceso denegado',
         message: 'Solo puedes confirmar el pago de tus propias tareas'
@@ -970,7 +1026,9 @@ const confirmPaymentReceived = async (req, res) => {
     }
 
     // Verificar que la tarea está asignada a este tasker
-    if (tarea.tasker_id !== req.user.id) {
+    // Para usuarios duales, usar tasker_id; para taskers puros, usar id
+    const taskerId = req.user.esUsuarioDual ? req.user.tasker_id : req.user.id;
+    if (tarea.tasker_id !== taskerId) {
       return res.status(403).json({
         error: 'Acceso denegado',
         message: 'Solo puedes confirmar recepción de pago de tus propias tareas'
@@ -1055,6 +1113,26 @@ const confirmPaymentReceived = async (req, res) => {
   }
 };
 
+/**
+ * Obtener categorías activas (endpoint público)
+ * GET /api/task/categorias
+ */
+const getCategorias = async (req, res) => {
+  try {
+    const categorias = await Categoria.findAll();
+    res.json({
+      success: true,
+      categorias
+    });
+  } catch (error) {
+    console.error('Error al obtener categorías:', error);
+    res.status(500).json({
+      error: 'Error interno del servidor',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   createTask,
   getUserTasks,
@@ -1066,6 +1144,7 @@ module.exports = {
   startTask,
   completeTask,
   confirmPayment,
-  confirmPaymentReceived
+  confirmPaymentReceived,
+  getCategorias
 };
 

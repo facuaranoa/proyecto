@@ -6,7 +6,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { registerCliente, registerTasker, login, forgotPassword, resetPassword } = require('../controllers/authController');
+const { registerCliente, registerTasker, registerClienteAsTasker, login, forgotPassword, resetPassword } = require('../controllers/authController');
 const { upload } = require('../utils/upload');
 
 /**
@@ -49,6 +49,19 @@ router.post('/forgot-password', forgotPassword);
  * Resetear contraseña con token
  */
 router.post('/reset-password', resetPassword);
+
+/**
+ * POST /api/auth/register/cliente-as-tasker
+ * Registrar cliente existente como tasker (usuario dual)
+ * Requiere autenticación (JWT)
+ * Acepta archivos multipart/form-data para credenciales
+ */
+const { authenticateToken } = require('../middleware/auth');
+router.post('/register/cliente-as-tasker', authenticateToken, upload.fields([
+  { name: 'dni', maxCount: 1 },
+  { name: 'matricula', maxCount: 1 },
+  { name: 'licencia', maxCount: 1 }
+]), registerClienteAsTasker);
 
 module.exports = router;
 

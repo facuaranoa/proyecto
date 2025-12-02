@@ -26,6 +26,7 @@ const clienteRoutes = require('./routes/cliente');
 const adminRoutes = require('./routes/admin');
 const taskRoutes = require('./routes/task');
 const ratingRoutes = require('./routes/rating');
+const chatRoutes = require('./routes/chat');
 
 // Crear aplicación Express
 const app = express();
@@ -46,6 +47,7 @@ app.use('/api/cliente', clienteRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/task', taskRoutes);
 app.use('/api/rating', ratingRoutes);
+app.use('/api/chat', chatRoutes);
 
 // Ruta de prueba/health check
 app.get('/', (req, res) => {

@@ -92,8 +92,11 @@ const createRating = async (req, res) => {
     }
 
     // Verificar que el usuario está involucrado en la tarea
-    const esCliente = req.user.tipo === 'cliente' && tarea.cliente_id === req.user.id;
-    const esTasker = req.user.tipo === 'tasker' && tarea.tasker_id === req.user.id;
+    // Para usuarios duales, usar cliente_id o tasker_id según corresponda
+    const clienteId = req.user.esUsuarioDual && req.user.tipo === 'cliente' ? req.user.cliente_id : req.user.id;
+    const taskerId = req.user.esUsuarioDual && req.user.tipo === 'tasker' ? req.user.tasker_id : req.user.id;
+    const esCliente = req.user.tipo === 'cliente' && tarea.cliente_id === clienteId;
+    const esTasker = req.user.tipo === 'tasker' && tarea.tasker_id === taskerId;
 
     if (!esCliente && !esTasker) {
       return res.status(403).json({

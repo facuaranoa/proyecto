@@ -4,26 +4,89 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ayuda Al Toque - Plataforma de Servicios</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=2.13">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🚀 Ayuda Al Toque</h1>
-            <p>Plataforma de intermediación de servicios móviles</p>
+            <div class="header-content">
+                <div class="header-left">
+                    <button class="menu-toggle" id="menuToggle" onclick="toggleMobileMenu()" style="display: none;">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </button>
+                    <h1>🚀 Ayuda Al Toque</h1>
+                </div>
+                <div class="header-right">
+                    <!-- Botón Demo oculto -->
+                    <button class="demo-btn-header" onclick="loadDemoData()" style="display: none !important;">🎯 Demo</button>
+                </div>
+            </div>
+            <p class="header-subtitle">Plataforma de intermediación de servicios móviles</p>
+            
+            <!-- Menú móvil deslizable -->
+            <div class="mobile-menu" id="mobileMenu">
+                <div class="mobile-menu-content">
+                    <div class="mobile-menu-header">
+                        <h3>Menú</h3>
+                        <button class="menu-close" onclick="toggleMobileMenu()">✕</button>
+                    </div>
+                    <div class="mobile-menu-items">
+                        <button class="mobile-menu-item" onclick="showTab('dashboard'); toggleMobileMenu();" style="display: none;">
+                            <span class="menu-icon">🏠</span>
+                            <span>Menú Principal</span>
+                        </button>
+                        <button class="mobile-menu-item" id="mobileAvailabilityBtn" onclick="toggleAvailability(); toggleMobileMenu();" style="display: none;">
+                            <span class="menu-icon">✅</span>
+                            <span id="availabilityText">Disponible</span>
+                        </button>
+                        <button class="mobile-menu-item" onclick="showTab('admin'); toggleMobileMenu();" style="display: none;">
+                            <span class="menu-icon">👨‍💼</span>
+                            <span>Admin</span>
+                        </button>
+                        <!-- Botón Demo oculto -->
+                        <button class="mobile-menu-item" onclick="loadDemoData(); toggleMobileMenu();" style="display: none !important;">
+                            <span class="menu-icon">🎯</span>
+                            <span>Demo</span>
+                        </button>
+                        <button class="mobile-menu-item logout-item" onclick="logout(); toggleMobileMenu();" style="display: none;">
+                            <span class="menu-icon">🚪</span>
+                            <span>Salir</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
         </header>
 
-        <nav class="nav-tabs">
+        <!-- Navegación superior (solo para login/registro) -->
+        <nav class="nav-tabs" id="topNav">
             <button class="tab-btn" onclick="showTab('register')">Registro</button>
             <button class="tab-btn active" onclick="showTab('login')">Login</button>
-            <button class="tab-btn" onclick="showTab('dashboard')" style="display: none;">🏠 Dashboard</button>
-            <button class="tab-btn" onclick="showTabWithContent('tasks')" style="display: none;">Tareas</button>
-            <button class="tab-btn" onclick="showTabWithContent('profile')" style="display: none;">👤 Perfil</button>
-            <button class="tab-btn" onclick="showTabWithContent('search')" style="display: none;">🔍 Buscar</button>
-            <button class="tab-btn" id="availabilityBtn" onclick="toggleAvailability()" style="display: none;">✅ Disponible</button>
-            <button class="tab-btn" onclick="showTab('admin')" style="display: none;">Admin</button>
-            <button class="tab-btn demo-btn" onclick="loadDemoData()">🎯 Demo</button>
-            <button class="tab-btn logout-btn" onclick="logout()" style="display: none;">🚪 Salir</button>
+        </nav>
+
+        <!-- Bottom Navigation (solo cuando está logueado) -->
+        <nav class="bottom-nav" id="bottomNav" style="display: none;">
+            <button class="bottom-nav-btn" onclick="showMyTasks()" data-tab="tasks">
+                <span class="nav-icon">📋</span>
+                <span class="nav-label">Tareas</span>
+            </button>
+            <button class="bottom-nav-btn" onclick="showTabWithContent('search')" data-tab="search">
+                <span class="nav-icon">🔍</span>
+                <span class="nav-label">Buscar</span>
+            </button>
+            <button class="bottom-nav-btn create-btn-nav" onclick="showCreateTaskTab();" id="createTaskBtnNav">
+                <span class="nav-icon">➕</span>
+                <span class="nav-label">Crear</span>
+            </button>
+            <button class="bottom-nav-btn" onclick="showTabWithContent('profile')" data-tab="profile">
+                <span class="nav-icon">👤</span>
+                <span class="nav-label">Perfil</span>
+            </button>
+            <button class="bottom-nav-btn" onclick="toggleMobileMenu()" id="menuBtnNav" data-tab="more">
+                <span class="nav-icon">☰</span>
+                <span class="nav-label">Más</span>
+            </button>
         </nav>
 
         <div id="register" class="tab-content">
@@ -57,9 +120,9 @@
 
                     <div class="terms-container">
                         <label class="terms-label">
-                            <input type="checkbox" id="clienteTerms" name="terminos_aceptados">
+                            <input type="checkbox" id="clienteTerms" name="terminos_aceptados" required>
                             <span class="checkmark"></span>
-                            Acepto los <a href="#" onclick="showTermsModal(event)">Términos y Condiciones</a> y la <a href="#" onclick="showPrivacyModal(event)">Política de Privacidad</a>
+                            <span>Acepto los <a href="#" onclick="event.preventDefault(); showTermsModal(event)">Términos y Condiciones</a> y la <a href="#" onclick="event.preventDefault(); showPrivacyModal(event)">Política de Privacidad</a></span>
                         </label>
                     </div>
 
@@ -83,14 +146,15 @@
                     <label for="taskerTelefono">Teléfono *</label>
                     <input type="tel" id="taskerTelefono" placeholder="+549123456789" required>
 
-                    <label for="taskerEspecialidad">Especialidad *</label>
-                    <select id="taskerEspecialidad" required>
-                        <option value="" disabled selected>👷 Seleccionar especialidad</option>
-                        <option value="plomero">🔧 Plomero</option>
-                        <option value="electricista">⚡ Electricista</option>
-                        <option value="carpintero">🔨 Carpintero</option>
-                        <option value="jardinero">🌱 Jardinero</option>
-                        <option value="otros">🔧 Otros</option>
+                    <label for="taskerCategoriaPrincipal">Categoría Principal *</label>
+                    <select id="taskerCategoriaPrincipal" required onchange="updateTaskerEspecialidades()">
+                        <option value="" disabled selected>🏷️ Seleccionar categoría</option>
+                        <!-- Se llenará dinámicamente con las categorías disponibles -->
+                    </select>
+
+                    <label for="taskerEspecialidad">Especialidad (opcional)</label>
+                    <select id="taskerEspecialidad">
+                        <option value="" selected>👷 Selecciona primero una categoría</option>
                     </select>
 
                     <label for="taskerCuit">CUIT (opcional)</label>
@@ -105,9 +169,9 @@
 
                     <div class="terms-container">
                         <label class="terms-label">
-                            <input type="checkbox" id="taskerTerms" name="terminos_aceptados">
+                            <input type="checkbox" id="taskerTerms" name="terminos_aceptados" required>
                             <span class="checkmark"></span>
-                            Acepto los <a href="#" onclick="showTermsModal(event)">Términos y Condiciones</a> y la <a href="#" onclick="showPrivacyModal(event)">Política de Privacidad</a>
+                            <span>Acepto los <a href="#" onclick="event.preventDefault(); showTermsModal(event)">Términos y Condiciones</a> y la <a href="#" onclick="event.preventDefault(); showPrivacyModal(event)">Política de Privacidad</a></span>
                         </label>
                     </div>
 
@@ -119,7 +183,7 @@
         <div id="login" class="tab-content active">
             <h2>Iniciar Sesión</h2>
             <div class="form-container">
-                <form id="loginForm">
+                <form id="loginForm" onsubmit="return false;">
                     <input type="email" id="loginEmail" placeholder="Email" required>
                     <input type="password" id="loginPassword" placeholder="Contraseña" required>
                     <button type="submit">Iniciar Sesión</button>
@@ -198,6 +262,9 @@
         </div>
 
         <div id="messages" class="messages"></div>
+        
+        <!-- Overlay para cerrar menú móvil -->
+        <div class="menu-overlay" id="menuOverlay" onclick="toggleMobileMenu()"></div>
     </div>
 
     <!-- Modal de Términos y Condiciones -->
@@ -275,6 +342,6 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=2.26"></script>
 </body>
 </html>

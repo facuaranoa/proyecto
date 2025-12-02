@@ -4,6 +4,32 @@ const API_BASE = 'http://localhost:3000/api';
 // Variables globales
 let currentUser = null;
 let currentToken = null;
+let taskerMode = 'tasker'; // 'tasker' o 'cliente' - controla el modo de visualización para taskers
+
+// Función helper para obtener el tipo efectivo del usuario
+// Los usuarios duales se comportan como taskers
+function getUserType() {
+    if (!currentUser) return null;
+    // Si es usuario dual, tratarlo como tasker
+    if (currentUser.esUsuarioDual) {
+        return 'tasker';
+    }
+    return currentUser.tipo;
+}
+
+// Función helper para verificar si el usuario es tasker (incluyendo usuarios duales)
+function isTasker() {
+    const userType = getUserType();
+    return userType === 'tasker';
+}
+
+// Función helper para verificar si el usuario es cliente (pero NO usuario dual)
+function isCliente() {
+    if (!currentUser) return false;
+    // Si es usuario dual, NO es cliente puro
+    if (currentUser.esUsuarioDual) return false;
+    return currentUser.tipo === 'cliente';
+}
 
 // CAPTURAR ERRORES GLOBALES - MUESTRA ALERTS CUANDO CONSOLA ESTÁ CERRADA
 window.addEventListener('error', function(e) {
@@ -87,6 +113,11 @@ console.log('🚀 FRONTEND CARGADO - Errores serán mostrados en alert si consol
 // Funciones de navegación de pestañas
 function showTab(tabName) {
     try {
+    // Si se muestra la pestaña de registro, cargar categorías
+    if (tabName === 'register') {
+        setTimeout(loadCategoriasForRegistration, 100);
+    }
+    
     // Ocultar todas las pestañas
     document.querySelectorAll('.tab-content').forEach(tab => {
         tab.classList.remove('active');
@@ -107,10 +138,14 @@ function showTab(tabName) {
         tabElement.classList.add('active');
         tabElement.style.display = 'block';
         
-        // Si es el panel admin, cargar contenido automáticamente
+        // Cargar contenido automáticamente según la pestaña
         if (tabName === 'admin' && currentUser && currentUser.tipo === 'admin') {
             setTimeout(() => {
                 showAdminContent();
+            }, 100);
+        } else if (tabName === 'dashboard' && currentUser) {
+            setTimeout(() => {
+                showDashboardContent();
             }, 100);
         }
     } else {
@@ -121,13 +156,23 @@ function showTab(tabName) {
         }
     }
 
-    // Activar el botón correspondiente
+    // Activar el botón correspondiente en top nav (si existe)
     document.querySelectorAll('.tab-btn').forEach(btn => {
         const onclick = btn.getAttribute('onclick');
         if (onclick && (onclick.includes(`showTab('${tabName}')`) || onclick.includes(`showTabWithContent('${tabName}')`))) {
             btn.classList.add('active');
         }
     });
+
+    // Actualizar bottom nav siempre cuando hay usuario logueado
+    if (currentUser) {
+        // Si es dashboard, no marcar ningún botón como activo (o marcar "Más")
+        if (tabName === 'dashboard') {
+            updateBottomNavActive('more');
+        } else {
+            updateBottomNavActive(tabName);
+        }
+    }
 
     } catch (error) {
         console.error('❌ Error en showTab:', error);
@@ -166,17 +211,66 @@ function toggleUserForm() {
 }
 
 // Función para mostrar pestañas con contenido dinámico
-function showTabWithContent(tabName) {
+function showTabWithContent(tabName, subtab = null) {
     // Primero mostrar la pestaña normalmente
     showTab(tabName);
 
+    // Actualizar bottom nav
+    updateBottomNavActive(tabName);
+
     // Cargar contenido dinámico según la pestaña
     if (tabName === 'tasks' && currentUser) {
-        showTasksContent();
+        showTasksContent(subtab);
     } else if (tabName === 'profile' && currentUser) {
         showProfileContent();
     } else if (tabName === 'search' && currentUser) {
         showSearchContent();
+    }
+}
+
+// Función para mostrar "Mis Tareas" (navega a la pestaña correcta)
+function showMyTasks() {
+    if (!currentUser) return;
+    
+    const userType = getUserType(); // Usar función helper
+    let subtab = null;
+    
+    // Determinar qué subtab mostrar
+    if (isCliente() || (isTasker() && taskerMode === 'cliente')) {
+        // Para clientes: mostrar "Pendientes de Asignar"
+        subtab = 'pending';
+    } else if (isTasker() && taskerMode === 'tasker') {
+        // Para taskers: mostrar "Asignadas"
+        subtab = 'assigned';
+    }
+    
+    // Ir a la pestaña de tareas con el subtab especificado
+    showTabWithContent('tasks', subtab);
+}
+
+// Función para mostrar "Crear Tarea"
+function showCreateTaskTab() {
+    if (!currentUser) return;
+    
+    const userType = getUserType(); // Usar función helper
+    
+    // Solo funciona para clientes o taskers en modo cliente
+    if (isCliente() || (isTasker() && taskerMode === 'cliente')) {
+        // Ir a la pestaña de tareas con subtab "create"
+        showTabWithContent('tasks', 'create');
+    }
+}
+
+// Función para mostrar "Buscar Tareas" (para taskers)
+function showSearchTasks() {
+    if (!currentUser) return;
+    
+    const userType = getUserType(); // Usar función helper
+    
+    // Solo funciona para taskers en modo tasker
+    if (isTasker() && taskerMode === 'tasker') {
+        // Ir a la pestaña de tareas con subtab "available"
+        showTabWithContent('tasks', 'available');
     }
 }
 
@@ -313,6 +407,15 @@ async function registerTasker(event) {
     const submitBtn = event.target.querySelector('button[type="submit"]');
     setLoading(submitBtn, true);
 
+    const categoriaPrincipal = document.getElementById('taskerCategoriaPrincipal').value;
+    const especialidad = document.getElementById('taskerEspecialidad').value;
+    
+    // Obtener las especialidades de la categoría seleccionada
+    const categoria = categoriasDisponibles.find(cat => cat.id === categoriaPrincipal);
+    const especialidades = categoria && categoria.subcategorias 
+        ? categoria.subcategorias.filter(sub => sub.id === especialidad).map(sub => sub.nombre)
+        : [especialidad];
+
     const formData = {
         email: document.getElementById('taskerEmail').value,
         password: document.getElementById('taskerPassword').value,
@@ -321,7 +424,9 @@ async function registerTasker(event) {
         telefono: document.getElementById('taskerTelefono').value,
         cuit: document.getElementById('taskerCuit').value || null,
         monotributista_check: document.getElementById('taskerMonotributista').checked,
-        terminos_aceptados: document.getElementById('taskerTerms').checked
+        terminos_aceptados: document.getElementById('taskerTerms').checked,
+        categoria_principal: categoriaPrincipal,
+        especialidades: especialidades
     };
 
 
@@ -552,9 +657,19 @@ async function login(event) {
     const submitBtn = event.target.querySelector('button[type="submit"]');
     setLoading(submitBtn, true);
 
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+
+    // Validación básica
+    if (!email || !password) {
+        showMessage('❌ Por favor completa todos los campos', 'error');
+        setLoading(submitBtn, false);
+        return;
+    }
+
     const formData = {
-        email: document.getElementById('loginEmail').value,
-        password: document.getElementById('loginPassword').value
+        email: email,
+        password: password
     };
 
     try {
@@ -566,35 +681,66 @@ async function login(event) {
             body: JSON.stringify(formData)
         });
 
-        const data = await response.json();
+        // Verificar si la respuesta es JSON
+        let data;
+        try {
+            data = await response.json();
+        } catch (jsonError) {
+            throw new Error('El servidor no respondió correctamente. ¿Está el backend corriendo?');
+        }
 
         if (response.ok) {
             currentToken = data.token;
             currentUser = data.usuario;
+            
+            // Debug: mostrar información del usuario recibido
+            console.log('🔍 Login - Usuario recibido del backend:', currentUser);
+            console.log('🔍 Login - esUsuarioDual:', currentUser.esUsuarioDual);
+            console.log('🔍 Login - tipo:', currentUser.tipo);
 
             // Cambiar a modo logueado
             switchToLoggedInMode();
 
-            // Actualizar botón de disponibilidad si es tasker
-            if (currentUser.tipo === 'tasker') {
+            // Actualizar botón de disponibilidad si es tasker (incluyendo usuarios duales)
+            if (isTasker()) {
                 updateAvailabilityButton();
+            }
+            
+            // Si es usuario dual, mostrar información en consola
+            if (currentUser.esUsuarioDual) {
+                console.log('✅ Usuario dual detectado - Comportándose como tasker:', {
+                    cliente_id: currentUser.cliente_id,
+                    tasker_id: currentUser.tasker_id,
+                    categoria_principal: currentUser.categoria_principal,
+                    especialidades: currentUser.especialidades
+                });
+            } else {
+                console.log('⚠️ Usuario NO detectado como dual. Tipo:', currentUser.tipo);
             }
 
             // Mostrar la pestaña correspondiente según el tipo de usuario
-            if (currentUser.tipo === 'admin') {
+            const userType = getUserType();
+            if (userType === 'admin') {
                 showTab('admin'); // Panel de administración
-            } else if (currentUser.tipo === 'cliente') {
+            } else if (isTasker()) {
+                // Taskers (incluyendo usuarios duales): mostrar tareas disponibles
+                showTabWithContent('tasks');
+            } else if (isCliente()) {
                 showTabWithContent('tasks'); // Crear/ver tareas
-            } else {
-                showTabWithContent('tasks'); // Ver tareas disponibles (para taskers)
             }
 
             document.getElementById('loginForm').reset();
+            showMessage('✅ Login exitoso', 'success');
         } else {
-            showMessage(`❌ Error: ${data.message || 'Credenciales inválidas'}`, 'error');
+            showMessage(`❌ Error: ${data.message || data.error || 'Credenciales inválidas'}`, 'error');
         }
     } catch (error) {
-        showMessage(`❌ Error de conexión: ${error.message}`, 'error');
+        console.error('Error en login:', error);
+        if (error.message.includes('fetch')) {
+            showMessage('❌ Error de conexión: No se pudo conectar al servidor. Verifica que el backend esté corriendo en http://localhost:3000', 'error');
+        } else {
+            showMessage(`❌ Error: ${error.message}`, 'error');
+        }
     } finally {
         setLoading(submitBtn, false);
     }
@@ -768,6 +914,9 @@ function showAdminContent() {
                 <button class="admin-tab-btn" onclick="showAdminTab('tareas')" id="admin-tab-tareas">
                     📋 Tareas
                 </button>
+                <button class="admin-tab-btn" onclick="showAdminTab('categorias')" id="admin-tab-categorias">
+                    🏷️ Categorías
+                </button>
             </div>
 
             <!-- CONTENIDO: DASHBOARD -->
@@ -880,6 +1029,21 @@ function showAdminContent() {
                     <p>Cargando tareas...</p>
                 </div>
             </div>
+
+            <!-- CONTENIDO: CATEGORÍAS -->
+            <div id="admin-tab-content-categorias" class="admin-tab-content">
+                <div class="admin-section-header">
+                    <h3>🏷️ Gestión de Categorías</h3>
+                    <div class="admin-actions">
+                        <button class="btn-primary" onclick="showCreateCategoriaModal()">
+                            ➕ Nueva Categoría
+                        </button>
+                    </div>
+                </div>
+                <div id="adminCategoriasList" class="admin-list-container">
+                    <p>Cargando categorías...</p>
+                </div>
+            </div>
         </div>
     `;
 
@@ -920,6 +1084,9 @@ function showAdminTab(tabName) {
             break;
         case 'tareas':
             loadAdminTareas();
+            break;
+        case 'categorias':
+            loadAdminCategorias();
             break;
     }
 }
@@ -1589,6 +1756,22 @@ async function desbloquearUsuario(usuarioId, tipo) {
 }
 
 // Función para que un tasker acepte una tarea
+// Función helper para obtener headers con X-User-Mode si es necesario
+function getAuthHeaders(additionalHeaders = {}, forceMode = null) {
+    const headers = {
+        'Authorization': `Bearer ${currentToken}`,
+        ...additionalHeaders
+    };
+    
+    // Para usuarios duales, enviar el header X-User-Mode para indicar el modo activo
+    if (currentUser && currentUser.esUsuarioDual) {
+        // Si se especifica un modo forzado, usarlo; si no, usar el modo actual
+        headers['X-User-Mode'] = forceMode !== null ? forceMode : taskerMode;
+    }
+    
+    return headers;
+}
+
 // Función para aplicar a una tarea (tasker)
 async function applyToTask(taskId) {
     if (!currentToken) {
@@ -1603,10 +1786,9 @@ async function applyToTask(taskId) {
     try {
         const response = await fetch(`${API_BASE}/task/apply/${taskId}`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentToken}`
-            }
+            headers: getAuthHeaders({
+                'Content-Type': 'application/json'
+            })
         });
 
         const data = await response.json();
@@ -1636,6 +1818,9 @@ async function acceptTask(taskId) {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
+    // Cargar categorías para el formulario de registro
+    loadCategoriasForRegistration();
+    
     // Formularios
     document.getElementById('clienteForm').addEventListener('submit', registerCliente);
     document.getElementById('taskerForm').addEventListener('submit', registerTasker);
@@ -1663,6 +1848,20 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('taskerTerms').addEventListener('change', function() {
         if (this.checked) {
             highlightTerms('taskerTerms');
+        }
+    });
+    
+    // Listener para resize (mostrar/ocultar bottom nav según tamaño)
+    window.addEventListener('resize', function() {
+        if (currentUser) {
+            const bottomNav = document.getElementById('bottomNav');
+            const menuToggle = document.getElementById('menuToggle');
+            
+            // Bottom nav siempre visible cuando hay usuario logueado
+            if (bottomNav) bottomNav.style.display = 'flex';
+            
+            // Mostrar menú hamburguesa siempre cuando hay usuario logueado
+            if (menuToggle) menuToggle.style.display = 'flex';
         }
     });
 });
@@ -1717,7 +1916,7 @@ function validateRequiredFields(formType) {
         { id: 'taskerNombre', name: 'Nombre' },
         { id: 'taskerApellido', name: 'Apellido' },
         { id: 'taskerTelefono', name: 'Teléfono' },
-        { id: 'taskerEspecialidad', name: 'Especialidad' }
+        { id: 'taskerCategoriaPrincipal', name: 'Categoría Principal' }
     ];
 
     const missingFields = [];
@@ -1818,91 +2017,153 @@ async function testConnection() {
 
 // Función para cambiar a modo logueado
 function switchToLoggedInMode() {
-    // Ocultar todas las pestañas
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.style.display = 'none';
+    // Agregar clase al container para ajustar padding
+    const container = document.querySelector('.container');
+    if (container) {
+        container.classList.add('has-bottom-nav');
+    }
+
+    // Ocultar top nav (login/registro)
+    const topNav = document.getElementById('topNav');
+    if (topNav) {
+        topNav.style.display = 'none';
+    }
+
+    // Mostrar bottom navigation siempre cuando hay usuario logueado
+    const bottomNav = document.getElementById('bottomNav');
+    if (bottomNav) {
+        bottomNav.style.display = 'flex';
+    }
+
+    // Mostrar menú hamburguesa siempre cuando hay usuario logueado
+    const menuToggle = document.getElementById('menuToggle');
+    if (menuToggle) {
+        menuToggle.style.display = 'flex';
+    }
+
+    // Ocultar demo button en header (deshabilitado)
+    const demoBtnHeader = document.querySelector('.demo-btn-header');
+    if (demoBtnHeader) {
+        demoBtnHeader.style.display = 'none';
+    }
+
+    // Configurar menú móvil según tipo de usuario
+    setupMobileMenu();
+
+    // Marcar la pestaña activa en bottom nav
+    updateBottomNavActive('tasks');
+}
+
+// Función para configurar el menú móvil según el tipo de usuario
+function setupMobileMenu() {
+    const dashboardItem = document.querySelector('.mobile-menu-item[onclick*="dashboard"]');
+    const adminItem = document.querySelector('.mobile-menu-item[onclick*="admin"]');
+    const availabilityItem = document.getElementById('mobileAvailabilityBtn');
+    const logoutItem = document.querySelector('.mobile-menu-item.logout-item');
+
+    // Mostrar dashboard si existe
+    if (dashboardItem) {
+        dashboardItem.style.display = 'flex';
+    }
+
+    // Mostrar admin solo si es admin
+    if (currentUser && currentUser.tipo === 'admin' && adminItem) {
+        adminItem.style.display = 'flex';
+    }
+
+    // Mostrar disponibilidad solo si es tasker (incluyendo usuarios duales)
+    if (currentUser && isTasker() && availabilityItem) {
+        availabilityItem.style.display = 'flex';
+        updateMobileAvailabilityButton();
+    }
+
+    // Mostrar logout siempre cuando está logueado
+    if (logoutItem) {
+        logoutItem.style.display = 'flex';
+    }
+}
+
+// Función para actualizar el botón de disponibilidad en el menú móvil
+function updateMobileAvailabilityButton() {
+    const availabilityItem = document.getElementById('mobileAvailabilityBtn');
+    const availabilityText = document.getElementById('availabilityText');
+    
+    if (!availabilityItem || !currentUser || !isTasker()) return;
+
+    // Para usuarios duales, usar disponible_tasker; para taskers puros, usar disponible
+    let disponible = false;
+    if (currentUser.esUsuarioDual) {
+        disponible = currentUser.disponible_tasker !== undefined ? currentUser.disponible_tasker : true;
+    } else {
+        disponible = currentUser.disponible !== undefined ? currentUser.disponible : true;
+    }
+
+    if (disponible) {
+        if (availabilityText) availabilityText.textContent = 'DISPONIBLE';
+        availabilityItem.style.color = '#10b981';
+        // Actualizar el ícono si existe
+        const icon = availabilityItem.querySelector('.menu-icon');
+        if (icon) icon.textContent = '✅';
+    } else {
+        if (availabilityText) availabilityText.textContent = 'NO DISPONIBLE';
+        availabilityItem.style.color = '#ef4444';
+        // Actualizar el ícono si existe
+        const icon = availabilityItem.querySelector('.menu-icon');
+        if (icon) icon.textContent = '❌';
+    }
+}
+
+// Función para toggle del menú móvil
+function toggleMobileMenu() {
+    const mobileMenu = document.getElementById('mobileMenu');
+    const menuOverlay = document.getElementById('menuOverlay');
+    const menuToggle = document.getElementById('menuToggle');
+
+    if (!mobileMenu || !menuOverlay || !menuToggle) return;
+
+    const isActive = mobileMenu.classList.contains('active');
+
+    if (isActive) {
+        mobileMenu.classList.remove('active');
+        menuOverlay.classList.remove('active');
+        menuToggle.classList.remove('active');
+    } else {
+        mobileMenu.classList.add('active');
+        menuOverlay.classList.add('active');
+        menuToggle.classList.add('active');
+    }
+}
+
+// Función para actualizar el botón activo en bottom nav
+function updateBottomNavActive(tabName) {
+    const bottomNavBtns = document.querySelectorAll('.bottom-nav-btn');
+    bottomNavBtns.forEach(btn => {
+        btn.classList.remove('active');
+        const dataTab = btn.getAttribute('data-tab');
+        if (dataTab === tabName) {
+            btn.classList.add('active');
+        }
     });
+}
 
-    // Encontrar y mostrar las pestañas necesarias
-    const tabBtns = document.querySelectorAll('.tab-btn');
-    let logoutBtn = null;
-    let tasksBtn = null;
-    let profileBtn = null;
-    let searchBtn = null;
-    let availabilityBtn = null;
-    let adminBtn = null;
-
-    tabBtns.forEach(btn => {
-        if (btn.onclick && btn.onclick.toString().includes('logout')) {
-            logoutBtn = btn;
-        }
-        if (btn.onclick && btn.onclick.toString().includes('showTabWithContent(\'tasks\')')) {
-            tasksBtn = btn;
-        }
-        if (btn.onclick && btn.onclick.toString().includes('showTabWithContent(\'profile\')')) {
-            profileBtn = btn;
-        }
-        if (btn.onclick && btn.onclick.toString().includes('showTabWithContent(\'search\')')) {
-            searchBtn = btn;
-        }
-        if (btn.id === 'availabilityBtn' || (btn.onclick && btn.onclick.toString().includes('toggleAvailability'))) {
-            availabilityBtn = btn;
-        }
-        if (btn.onclick && btn.onclick.toString().includes('admin')) {
-            adminBtn = btn;
-        }
-    });
-
-    if (logoutBtn) {
-        logoutBtn.style.display = 'inline-block';
-    }
-
-    // Mostrar pestaña admin solo si el usuario es admin
-    if (currentUser.tipo === 'admin' && adminBtn) {
-        adminBtn.style.display = 'inline-block';
-        adminBtn.classList.add('active');
-    }
-
-    if (tasksBtn) {
-        tasksBtn.style.display = 'inline-block';
-
-        // Configurar el texto de la pestaña según el tipo de usuario
-        if (currentUser.tipo === 'cliente') {
-            tasksBtn.textContent = 'Mis Tareas';
-            if (currentUser.tipo !== 'admin') {
-                tasksBtn.classList.add('active');
-            }
-        } else if (currentUser.tipo === 'tasker') {
-            tasksBtn.textContent = 'Tareas Disponibles';
-            if (currentUser.tipo !== 'admin') {
-                tasksBtn.classList.add('active');
-            }
-        }
-    }
-
-    // Mostrar pestañas de Perfil y Buscar para todos los usuarios (excepto admin)
-    if (currentUser.tipo !== 'admin') {
-        if (profileBtn) {
-            profileBtn.style.display = 'inline-block';
-        }
-        if (searchBtn) {
-            searchBtn.style.display = 'inline-block';
-        }
-    }
-
-    // Mostrar botón de disponibilidad solo para taskers
-    if (currentUser.tipo === 'tasker' && availabilityBtn) {
-        availabilityBtn.style.display = 'inline-block';
-        updateAvailabilityButton();
-    }
+// Función para mostrar crear tarea (desde bottom nav) - DEPRECADA, usar showCreateTaskTab()
+function showCreateTask() {
+    showCreateTaskTab();
 }
 
 // Función para actualizar el texto y estilo del botón de disponibilidad
 function updateAvailabilityButton() {
     const availabilityBtn = document.getElementById('availabilityBtn');
+    updateMobileAvailabilityButton(); // También actualizar en menú móvil
     if (!availabilityBtn || !currentUser) return;
 
-    const disponible = currentUser.disponible !== false; // Por defecto true si no está definido
+    // Para usuarios duales, usar disponible_tasker; para taskers puros, usar disponible
+    let disponible = false;
+    if (currentUser.esUsuarioDual) {
+        disponible = currentUser.disponible_tasker !== undefined ? currentUser.disponible_tasker : true;
+    } else {
+        disponible = currentUser.disponible !== undefined ? currentUser.disponible : true;
+    }
     
     if (disponible) {
         availabilityBtn.textContent = '✅ Disponible';
@@ -1918,19 +2179,28 @@ function updateAvailabilityButton() {
 // Función para cambiar la disponibilidad del tasker
 async function toggleAvailability() {
     try {
-        if (!currentToken || currentUser.tipo !== 'tasker') {
+        if (!currentToken || !isTasker()) {
             showMessage('❌ Solo los taskers pueden cambiar su disponibilidad', 'error');
             return;
         }
 
-        const nuevaDisponibilidad = !(currentUser.disponible !== false);
+        // Obtener disponibilidad actual
+        let disponibleActual = false;
+        if (currentUser.esUsuarioDual) {
+            disponibleActual = currentUser.disponible_tasker !== undefined ? currentUser.disponible_tasker : true;
+        } else {
+            disponibleActual = currentUser.disponible !== undefined ? currentUser.disponible : true;
+        }
+        const nuevaDisponibilidad = !disponibleActual;
         
-        const response = await fetch(`${API_BASE}/tasker/profile/${currentUser.id}`, {
+        // Para usuarios duales, usar tasker_id; para taskers puros, usar id
+        const taskerId = currentUser.esUsuarioDual ? currentUser.tasker_id : currentUser.id;
+        
+        const response = await fetch(`${API_BASE}/tasker/profile/${taskerId}`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentToken}`
-            },
+            headers: getAuthHeaders({
+                'Content-Type': 'application/json'
+            }),
             body: JSON.stringify({
                 disponible: nuevaDisponibilidad
             })
@@ -1940,13 +2210,22 @@ async function toggleAvailability() {
 
         if (response.ok) {
             // Actualizar currentUser
-            currentUser.disponible = nuevaDisponibilidad;
+            if (currentUser.esUsuarioDual) {
+                currentUser.disponible_tasker = nuevaDisponibilidad;
+            } else {
+                currentUser.disponible = nuevaDisponibilidad;
+            }
             if (data.tasker) {
-                currentUser.disponible = data.tasker.disponible;
+                if (currentUser.esUsuarioDual) {
+                    currentUser.disponible_tasker = data.tasker.disponible;
+                } else {
+                    currentUser.disponible = data.tasker.disponible;
+                }
             }
             
             // Actualizar el botón
             updateAvailabilityButton();
+            updateMobileAvailabilityButton(); // Actualizar también en menú móvil
             
             showMessage(
                 nuevaDisponibilidad 
@@ -1964,7 +2243,7 @@ async function toggleAvailability() {
 }
 
 // Función para mostrar el contenido de tareas según el tipo de usuario
-function showTasksContent() {
+function showTasksContent(subtab = null) {
     try {
         console.log('🔄 showTasksContent ejecutándose...');
 
@@ -1975,32 +2254,32 @@ function showTasksContent() {
             return;
         }
 
-        const userType = currentUser.tipo;
-        console.log('👤 Usuario tipo:', userType);
+        const userType = getUserType(); // Usar función helper para normalizar tipo
+        console.log('👤 Usuario tipo:', userType, currentUser.esUsuarioDual ? '(usuario dual)' : '');
 
-    let tasksHTML = `
-        <div class="tasks-container">
-            <div class="user-header">
-                <h2>${userType === 'cliente' ? '📋 Mis Tareas' : '📋 Tareas Disponibles'}</h2>
-                <p>Bienvenido, ${currentUser.nombre} ${currentUser.apellido}</p>
-            </div>
-    `;
+        let tasksHTML = `
+            <div class="tasks-container">
+                <div class="user-header">
+                    <h2>${isCliente() ? '📋 Mis Tareas' : '📋 Tareas Disponibles'}</h2>
+                    <p>Bienvenido, ${currentUser.nombre} ${currentUser.apellido}</p>
+                </div>
+        `;
 
-    if (userType === 'cliente') {
-        console.log('👤 RENDERIZANDO DASHBOARD CLIENTE');
-        // Para clientes: pestañas para organizar tareas
-        tasksHTML += `
+        if (isCliente()) {
+            console.log('👤 RENDERIZANDO DASHBOARD CLIENTE');
+            // Para clientes: pestañas para organizar tareas
+            tasksHTML += `
             <div class="tasks-section">
                 <!-- PESTAÑAS PARA CLIENTE -->
                 <div class="client-tabs">
-                    <button class="client-tab-btn active" onclick="showClientTab('create')" id="tab-create">➕ Crear Tarea</button>
-                    <button class="client-tab-btn" onclick="showClientTab('pending')" id="tab-pending">⏳ Pendientes de Asignar</button>
+                    <button class="client-tab-btn" onclick="showClientTab('create')" id="tab-create">➕ Crear Tarea</button>
+                    <button class="client-tab-btn active" onclick="showClientTab('pending')" id="tab-pending">⏳ Pendientes de Asignar</button>
                     <button class="client-tab-btn" onclick="showClientTab('assigned')" id="tab-assigned">📋 Tareas Asignadas</button>
                     <button class="client-tab-btn" onclick="showClientTab('history')" id="tab-history">📜 Historial</button>
                 </div>
 
                 <!-- CONTENIDO: CREAR TAREA -->
-                <div id="client-tab-create" class="client-tab-content active">
+                <div id="client-tab-create" class="client-tab-content">
                     <div class="create-task-section">
                         <h3>➕ Crear Nueva Tarea</h3>
 
@@ -2019,35 +2298,9 @@ function showTasksContent() {
 
                         <!-- PASO 1: TIPO DE SERVICIO -->
                         <div class="wizard-step active" data-step="1">
-                            <div class="service-selection">
-                        <div class="service-card" data-service="EXPRESS">
-                            <div class="service-icon">⚡</div>
-                            <h4>Express</h4>
-                            <p>Soluciones rápidas en 2-4 horas</p>
-                            <ul class="service-features">
-                                <li>🔧 Plomería</li>
-                                <li>⚡ Electricidad</li>
-                                <li>🌱 Jardinería</li>
-                                <li>🔧 Reparaciones menores</li>
-                            </ul>
-                            <button class="select-service-btn" data-service="EXPRESS">
-                                Seleccionar Servicio
-                            </button>
-                        </div>
-                        <div class="service-card" data-service="ESPECIALISTA">
-                            <div class="service-icon">🎯</div>
-                            <h4>Especialista</h4>
-                            <p>Trabajos especializados en 1-7 días</p>
-                            <ul class="service-features">
-                                <li>🔨 Carpintería</li>
-                                <li>🏠 Reformas</li>
-                                <li>🛠️ Instalaciones</li>
-                                <li>🎨 Pintura y decoración</li>
-                            </ul>
-                            <button class="select-service-btn" data-service="ESPECIALISTA">
-                                Seleccionar Servicio
-                            </button>
-                        </div>
+                            <div class="service-selection" id="serviceSelectionContainer">
+                                <!-- Las categorías se cargarán dinámicamente aquí -->
+                                <p>Cargando categorías...</p>
                             </div>
                         </div>
 
@@ -2189,12 +2442,10 @@ function showTasksContent() {
                         <button type="submit" class="create-btn" style="display: none;">Crear Tarea</button>
                     </form>
                 </div>
-
-                    </div>
-                </div>
+            </div>
 
                 <!-- CONTENIDO: TAREAS PENDIENTES DE ASIGNAR -->
-                <div id="client-tab-pending" class="client-tab-content">
+                <div id="client-tab-pending" class="client-tab-content active">
                     <h3>⏳ Tareas Pendientes de Asignar</h3>
                     <div id="pendingTasksList" class="tasks-list">
                         <p class="no-tasks">Cargando tareas pendientes...</p>
@@ -2217,10 +2468,10 @@ function showTasksContent() {
                     </div>
                 </div>
             </div>
-        `;
-    } else if (userType === 'admin') {
-        // Para admin: mostrar mensaje de que debe usar el panel admin
-        tasksHTML += `
+            `;
+        } else if (userType === 'admin') {
+            // Para admin: mostrar mensaje de que debe usar el panel admin
+            tasksHTML += `
             <div class="admin-info">
                 <h3>👨‍💼 Panel de Administración</h3>
                 <p>Bienvenido, ${currentUser.nombre} ${currentUser.apellido}</p>
@@ -2233,30 +2484,241 @@ function showTasksContent() {
                 </ul>
             </div>
         `;
-    } else {
-        // Para taskers: lista de tareas disponibles
-        const aprobado = currentUser.aprobado_admin;
+        } else if (isTasker()) {
+            // Para taskers (incluyendo usuarios duales): permitir elegir entre modo tasker o modo cliente
+            const aprobado = currentUser.esUsuarioDual ? (currentUser.aprobado_admin_tasker || false) : (currentUser.aprobado_admin || false);
 
-        if (!aprobado) {
-            tasksHTML += `
-                <div class="pending-approval">
-                    <h3>⏳ Esperando Aprobación</h3>
-                    <p>Tu cuenta está pendiente de aprobación por el administrador.</p>
-                    <p>Contacta al soporte para acelerar el proceso.</p>
+            if (!aprobado) {
+                tasksHTML += `
+                    <div class="pending-approval">
+                        <h3>⏳ Esperando Aprobación</h3>
+                        <p>Tu cuenta está pendiente de aprobación por el administrador.</p>
+                        <p>Contacta al soporte para acelerar el proceso.</p>
+                    </div>
+                `;
+            } else {
+                // Selector de modo compacto (toggle switch) para taskers
+                const isTaskerMode = taskerMode === 'tasker';
+                tasksHTML += `
+                <div class="mode-selector-compact" style="margin-bottom: 20px;">
+                    <label class="mode-toggle-label">
+                        <span class="mode-label-text">🔧 Modo Tasker</span>
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="modeToggle" ${isTaskerMode ? 'checked' : ''} onchange="setTaskerMode(this.checked ? 'tasker' : 'cliente');">
+                            <span class="toggle-slider"></span>
+                        </div>
+                        <span class="mode-label-text">👤 Modo Cliente</span>
+                    </label>
+                    <p class="mode-hint">${isTaskerMode ? 'Buscar y aplicar a tareas' : 'Crear tareas y contratar'}</p>
                 </div>
             `;
-        } else {
-            tasksHTML += `
+            
+            // Mostrar contenido según el modo seleccionado
+            if (taskerMode === 'cliente') {
+                // Mostrar dashboard de cliente
+                tasksHTML += `
+                    <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); padding: 20px; border-radius: 16px; margin-bottom: 25px; border: 2px solid #3b82f6;">
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <div style="font-size: 2em;">👤</div>
+                            <div style="flex: 1;">
+                                <h3 style="margin: 0 0 5px 0; color: #1e40af;">Modo Cliente Activado</h3>
+                                <p style="margin: 0; color: #1e40af; opacity: 0.8; font-size: 0.9em;">
+                                    Estás usando la plataforma como Cliente. Puedes crear tareas y contratar otros taskers.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tasks-section">
+                        <!-- PESTAÑAS PARA CLIENTE -->
+                        <div class="client-tabs">
+                            <button class="client-tab-btn" onclick="showClientTab('create')" id="tab-create">➕ Crear Tarea</button>
+                            <button class="client-tab-btn active" onclick="showClientTab('pending')" id="tab-pending">⏳ Pendientes de Asignar</button>
+                            <button class="client-tab-btn" onclick="showClientTab('assigned')" id="tab-assigned">📋 Tareas Asignadas</button>
+                            <button class="client-tab-btn" onclick="showClientTab('history')" id="tab-history">📜 Historial</button>
+                        </div>
+                        
+                        <!-- CONTENIDO: CREAR TAREA -->
+                        <div id="client-tab-create" class="client-tab-content">
+                            <div class="create-task-section">
+                                <h3>➕ Crear Nueva Tarea</h3>
+                                <!-- WIZARD FORM -->
+                                <div id="taskWizard" class="task-wizard">
+                                    <!-- HEADER CON PROGRESS -->
+                                    <div class="wizard-header">
+                                        <h4 id="wizardTitle">Paso 1: ¿Qué tipo de servicio necesitas?</h4>
+                                        <div class="progress-bar">
+                                            <div class="progress-step active" data-step="1">1</div>
+                                            <div class="progress-step" data-step="2">2</div>
+                                            <div class="progress-step" data-step="3">3</div>
+                                            <div class="progress-step" data-step="4">4</div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- PASO 1: TIPO DE SERVICIO -->
+                                    <div class="wizard-step active" data-step="1">
+                                        <div class="service-selection" id="serviceSelectionContainerTasker">
+                                            <!-- Las categorías se cargarán dinámicamente aquí -->
+                                            <p>Cargando categorías...</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- PASO 2: DESCRIPCIÓN -->
+                                    <div class="wizard-step" data-step="2">
+                                        <form class="wizard-form">
+                                            <div class="form-group">
+                                                <label for="taskTitulo">Título de la tarea *</label>
+                                                <input type="text" id="taskTitulo" placeholder="Ej: Reparar grifo de cocina" maxlength="80" required>
+                                                <small class="field-hint">Sé específico pero conciso</small>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="taskDescripcion">Descripción detallada *</label>
+                                                <textarea id="taskDescripcion" placeholder="Describe exactamente qué necesitas..." rows="4" maxlength="500" required></textarea>
+                                                <small class="field-hint">Incluye detalles como marca, modelo, síntomas del problema, etc.</small>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="taskCategoria">Categoría específica *</label>
+                                                <select id="taskCategoria" required>
+                                                    <option value="">Selecciona una categoría</option>
+                                                </select>
+                                            </div>
+                                        </form>
+                                    </div>
+                                    
+                                    <!-- PASO 3: UBICACIÓN Y FECHA -->
+                                    <div class="wizard-step" data-step="3">
+                                        <form class="wizard-form">
+                                            <div class="form-group">
+                                                <label for="taskDireccion">Dirección completa *</label>
+                                                <input type="text" id="taskDireccion" placeholder="Calle, número, barrio, ciudad" value="Av. Corrientes 1234" required>
+                                                <small class="field-hint">Dirección exacta donde se realizará el trabajo</small>
+                                            </div>
+                                            <div class="form-row">
+                                                <div class="form-group half">
+                                                    <label for="taskFecha">Fecha y hora deseada *</label>
+                                                    <input type="datetime-local" id="taskFecha" required>
+                                                    <small class="field-hint">¿Cuándo necesitas el servicio?</small>
+                                                </div>
+                                            </div>
+                                            <input type="hidden" id="taskLatitud" value="-34.6037">
+                                            <input type="hidden" id="taskLongitud" value="-58.3816">
+                                            <input type="hidden" id="taskCiudad" value="Buenos Aires">
+                                        </form>
+                                    </div>
+                                    
+                                    <!-- PASO 4: VISTA PREVIA Y CONFIRMACIÓN -->
+                                    <div class="wizard-step" data-step="4">
+                                        <div class="task-preview-section">
+                                            <h4>📋 Vista Previa de tu Tarea</h4>
+                                            <p class="preview-subtitle">Así se verá tu tarea para los taskers:</p>
+                                            <div class="task-preview-card">
+                                                <div class="preview-header">
+                                                    <div class="preview-service-type">
+                                                        <span id="previewServiceIcon">⚡</span>
+                                                        <span id="previewServiceType">Express</span>
+                                                    </div>
+                                                    <div class="preview-budget">
+                                                        <span id="previewBudget">$100</span>
+                                                    </div>
+                                                </div>
+                                                <div class="preview-content">
+                                                    <h3 id="previewTitle">Título de la tarea</h3>
+                                                    <p id="previewDescription">Descripción detallada de la tarea...</p>
+                                                    <div class="preview-details">
+                                                        <div class="preview-detail">
+                                                            <span class="detail-icon">📍</span>
+                                                            <span id="previewLocation">Dirección</span>
+                                                        </div>
+                                                        <div class="preview-detail">
+                                                            <span class="detail-icon">📅</span>
+                                                            <span id="previewDate">Fecha y hora</span>
+                                                        </div>
+                                                        <div class="preview-detail">
+                                                            <span class="detail-icon">🔧</span>
+                                                            <span id="previewCategory">Categoría</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="budget-summary">
+                                                <div class="summary-item">
+                                                    <span>Tu presupuesto:</span>
+                                                    <span id="budgetAmount">$100</span>
+                                                </div>
+                                                <div class="summary-item fee">
+                                                    <span>Comisión AyudaAlToque (20%):</span>
+                                                    <span id="platformFee">-$20</span>
+                                                </div>
+                                                <div class="summary-item net">
+                                                    <span>Tasker recibe:</span>
+                                                    <span id="taskerAmount">$80</span>
+                                                </div>
+                                            </div>
+                                            <form class="wizard-form" style="display: none;">
+                                                <div class="form-group">
+                                                    <label for="taskPresupuesto">Presupuesto máximo ($)</label>
+                                                    <input type="number" id="taskPresupuesto" placeholder="100" min="1" step="1" value="100" required>
+                                                    <small class="field-hint">Monto máximo que estás dispuesto a pagar</small>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- NAVEGACIÓN DEL WIZARD -->
+                                    <div class="wizard-navigation">
+                                        <button type="button" id="prevStep" class="btn-secondary" style="display: none;">← Anterior</button>
+                                        <div class="step-indicator">
+                                            <span id="currentStepText">Paso 1 de 4</span>
+                                        </div>
+                                        <button type="button" id="nextStep" class="btn-primary">Siguiente →</button>
+                                    </div>
+                                </div>
+                                
+                                <!-- FORMULARIO ORIGINAL (OCULTO) -->
+                                <form id="taskForm" class="task-form" style="display: none;">
+                                    <input type="hidden" id="taskTipoServicio">
+                                    <button type="submit" class="create-btn" style="display: none;">Crear Tarea</button>
+                                </form>
+                            </div>
+                        </div>
+                        
+                        <!-- CONTENIDO: TAREAS PENDIENTES DE ASIGNAR -->
+                        <div id="client-tab-pending" class="client-tab-content active">
+                            <h3>⏳ Tareas Pendientes de Asignar</h3>
+                            <div id="pendingTasksList" class="tasks-list">
+                                <p class="no-tasks">Cargando tareas pendientes...</p>
+                            </div>
+                        </div>
+                        
+                        <!-- CONTENIDO: TAREAS ASIGNADAS/EN PROCESO -->
+                        <div id="client-tab-assigned" class="client-tab-content">
+                            <h3>📋 Tareas Asignadas y en Proceso</h3>
+                            <div id="assignedTasksList" class="tasks-list">
+                                <p class="no-tasks">Cargando tareas asignadas...</p>
+                            </div>
+                        </div>
+                        
+                        <!-- CONTENIDO: HISTORIAL -->
+                        <div id="client-tab-history" class="client-tab-content">
+                            <h3>📜 Historial de Tareas</h3>
+                            <div id="historyTasksList" class="tasks-list">
+                                <p class="no-tasks">Cargando historial...</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Mostrar dashboard de tasker
+                tasksHTML += `
                 <!-- PESTAÑAS PARA TASKER -->
                 <div class="tasker-tabs">
-                    <button class="tasker-tab-btn active" onclick="showTaskerTab('available')" id="tab-available">🔍 Búsqueda</button>
-                    <button class="tasker-tab-btn" onclick="showTaskerTab('assigned')" id="tab-assigned-tasker">📋 Asignadas</button>
+                    <button class="tasker-tab-btn" onclick="showTaskerTab('available')" id="tab-available">🔍 Búsqueda</button>
+                    <button class="tasker-tab-btn active" onclick="showTaskerTab('assigned')" id="tab-assigned-tasker">📋 Asignadas</button>
                     <button class="tasker-tab-btn" onclick="showTaskerTab('pending-payment')" id="tab-pending-payment">💳 Pendientes de Pago</button>
                     <button class="tasker-tab-btn" onclick="showTaskerTab('history')" id="tab-history-tasker">📜 Historial</button>
                 </div>
 
                 <!-- CONTENIDO: TAREAS DISPONIBLES -->
-                <div id="tasker-tab-available" class="tasker-tab-content active">
+                <div id="tasker-tab-available" class="tasker-tab-content">
                     <div class="available-tasks-section">
                         <h3>📋 Tareas Disponibles</h3>
 
@@ -2268,8 +2730,7 @@ function showTasksContent() {
                                 <label for="filterTipoServicio">Tipo de Servicio:</label>
                                 <select id="filterTipoServicio">
                                     <option value="">Todos</option>
-                                    <option value="EXPRESS">⚡ Express</option>
-                                    <option value="ESPECIALISTA">🎯 Especialista</option>
+                                    <!-- Se llenará dinámicamente con las categorías -->
                                 </select>
                             </div>
 
@@ -2322,7 +2783,7 @@ function showTasksContent() {
                 </div>
 
                 <!-- CONTENIDO: TAREAS ASIGNADAS DEL TASKER -->
-                <div id="tasker-tab-assigned" class="tasker-tab-content">
+                <div id="tasker-tab-assigned" class="tasker-tab-content active">
                     <h3>📋 Mis Tareas Asignadas</h3>
                     <div id="taskerAssignedTasksList" class="tasks-list">
                         <p class="no-tasks">Cargando tareas asignadas...</p>
@@ -2345,40 +2806,350 @@ function showTasksContent() {
                     </div>
                 </div>
             `;
+            }
+            }
         }
-    }
 
-    tasksHTML += `</div>`;
-    tasksContent.innerHTML = tasksHTML;
-    console.log('📄 HTML INSERTADO EN DOM');
+        tasksHTML += `</div>`;
+        tasksContent.innerHTML = tasksHTML;
+        console.log('📄 HTML INSERTADO EN DOM');
 
-    // Si es cliente, agregar el event listener para el formulario
-    if (userType === 'cliente') {
-        document.getElementById('taskForm').addEventListener('submit', createTask);
-        loadClientPendingTasks(); // Cargar tareas pendientes de asignar
-        loadClientAssignedTasks(); // Cargar tareas asignadas/en proceso
-        loadClientHistoryTasks(); // Cargar historial
-        
-        // Inicializar el wizard después de que el DOM esté listo
-        setTimeout(() => {
-            console.log('🎯 Inicializando wizard después de renderizar...');
-            initializeWizard();
-        }, 100);
-    } else if (userType === 'admin') {
-        // Admin no necesita cargar tareas aquí, tiene su propio panel
-        console.log('👨‍💼 Admin en panel de tareas - usar panel ADMIN para gestionar');
-    } else if (currentUser.aprobado_admin) {
-        loadAvailableTasks(); // Cargar tareas disponibles para taskers aprobados
-        loadTaskerAssignedTasks(); // Cargar tareas asignadas del tasker
-        loadTaskerPendingPaymentTasks(); // Cargar tareas pendientes de pago
-        loadTaskerHistoryTasks(); // Cargar historial del tasker
-        // Inicializar filtros después de un breve delay para asegurar que el DOM esté listo
-        setTimeout(initializeFilters, 100);
-    }
+        // Si es cliente O tasker en modo cliente, agregar el event listener para el formulario
+        if (userType === 'cliente' || (userType === 'tasker' && taskerMode === 'cliente')) {
+            const taskForm = document.getElementById('taskForm');
+            if (taskForm) {
+                taskForm.addEventListener('submit', createTask);
+            }
+            
+            // Si se especificó un subtab, cambiar la pestaña activa
+            if (subtab) {
+                setTimeout(() => {
+                    showClientTab(subtab);
+                }, 100);
+            }
+            
+            // Cargar todas las tareas (se mostrarán según la pestaña activa)
+            loadClientPendingTasks(); // Cargar tareas pendientes de asignar
+            loadClientAssignedTasks(); // Cargar tareas asignadas/en proceso
+            loadClientHistoryTasks(); // Cargar historial
+            
+            // Cargar categorías y luego inicializar el wizard
+            loadCategorias().then(() => {
+                // Renderizar las categorías en el wizard
+                renderCategoriasInWizard();
+                // Inicializar el wizard después de que el DOM esté listo
+                setTimeout(() => {
+                    console.log('🎯 Inicializando wizard después de renderizar...');
+                    initializeWizard();
+                }, 100);
+            });
+        } else if (userType === 'admin') {
+            // Admin no necesita cargar tareas aquí, tiene su propio panel
+            console.log('👨‍💼 Admin en panel de tareas - usar panel ADMIN para gestionar');
+        } else if (isTasker() && taskerMode === 'tasker') {
+            const aprobado = currentUser.esUsuarioDual ? (currentUser.aprobado_admin_tasker || false) : (currentUser.aprobado_admin || false);
+            if (aprobado) {
+                // Si se especificó un subtab, cambiar la pestaña activa
+                if (subtab) {
+                    setTimeout(() => {
+                        showTaskerTab(subtab);
+                    }, 100);
+                }
+                
+                // Cargar todas las tareas (se mostrarán según la pestaña activa)
+                loadTaskerAssignedTasks(); // Cargar tareas asignadas del tasker
+                loadAvailableTasks(); // Cargar tareas disponibles para taskers aprobados
+                loadTaskerPendingPaymentTasks(); // Cargar tareas pendientes de pago
+                loadTaskerHistoryTasks(); // Cargar historial del tasker
+                // Inicializar filtros después de un breve delay para asegurar que el DOM esté listo
+                setTimeout(initializeFilters, 100);
+            }
+        }
 
     } catch (error) {
         console.error('❌ Error en showTasksContent:', error);
         alert('Error al mostrar el contenido de tareas: ' + error.message);
+    }
+}
+
+// Función para mostrar el contenido del dashboard
+function showDashboardContent() {
+    try {
+        console.log('🔄 showDashboardContent ejecutándose...');
+
+        const dashboardContent = document.getElementById('dashboardContent');
+        if (!dashboardContent) {
+            console.error('❌ Elemento dashboardContent no encontrado');
+            return;
+        }
+
+        const userType = getUserType(); // Usar función helper
+        console.log('🔍 Dashboard - userType:', userType);
+        console.log('🔍 Dashboard - esUsuarioDual:', currentUser.esUsuarioDual);
+        console.log('🔍 Dashboard - isTasker():', isTasker());
+        console.log('🔍 Dashboard - isCliente():', isCliente());
+        
+        let dashboardHTML = '';
+
+        if (userType === 'admin') {
+            // Para admin, redirigir al panel admin
+            showTab('admin');
+            return;
+        } else if (isTasker()) {
+            // Dashboard para tasker (incluyendo usuarios duales)
+            const aprobado = currentUser.esUsuarioDual ? (currentUser.aprobado_admin_tasker || false) : (currentUser.aprobado_admin || false);
+            
+            if (!aprobado) {
+                dashboardHTML = `
+                    <div class="dashboard-container">
+                        <div class="dashboard-header">
+                            <h2>📊 Menú Principal</h2>
+                            <p>Bienvenido, ${currentUser.nombre} ${currentUser.apellido}</p>
+                        </div>
+                        
+                        <div class="pending-approval">
+                            <h3>⏳ Esperando Aprobación</h3>
+                            <p>Tu cuenta está pendiente de aprobación por el administrador.</p>
+                            <p>Contacta al soporte para acelerar el proceso.</p>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Selector de modo compacto (toggle switch)
+                const isTaskerMode = taskerMode === 'tasker';
+                dashboardHTML = `
+                    <div class="dashboard-container">
+                        <div class="dashboard-header">
+                            <h2>📊 Menú Principal</h2>
+                            <p>Bienvenido, ${currentUser.nombre} ${currentUser.apellido}</p>
+                        </div>
+                        
+                        <div class="mode-selector-compact">
+                            <label class="mode-toggle-label">
+                                <span class="mode-label-text">🔧 Modo Tasker</span>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="modeToggle" ${isTaskerMode ? 'checked' : ''} onchange="setTaskerMode(this.checked ? 'tasker' : 'cliente'); showTabWithContent('tasks');">
+                                    <span class="toggle-slider"></span>
+                                </div>
+                                <span class="mode-label-text">👤 Modo Cliente</span>
+                            </label>
+                            <p class="mode-hint">${isTaskerMode ? 'Buscar y aplicar a tareas' : 'Crear tareas y contratar'}</p>
+                        </div>
+                        
+                        <div class="dashboard-quick-actions">
+                            <h3>⚡ Acciones Rápidas</h3>
+                            <p style="color: #64748b; font-size: 0.9em; margin-bottom: 20px; text-align: center;">Accede a todas las funcionalidades de la plataforma</p>
+                            <div class="quick-actions-grid">
+                                ${isTaskerMode ? `
+                                    <button class="quick-action-btn" onclick="showSearchTasks(); updateBottomNavActive('tasks');">
+                                        <div class="quick-action-icon">🔍</div>
+                                        <div class="quick-action-text">
+                                            <strong>Buscar Tareas</strong>
+                                            <small>Ver tareas disponibles</small>
+                                        </div>
+                                    </button>
+                                    
+                                    <button class="quick-action-btn" onclick="showMyTasks(); updateBottomNavActive('tasks');">
+                                        <div class="quick-action-icon">📋</div>
+                                        <div class="quick-action-text">
+                                            <strong>Mis Tareas</strong>
+                                            <small>Tareas asignadas</small>
+                                        </div>
+                                    </button>
+                                ` : `
+                                    <button class="quick-action-btn" onclick="showCreateTaskTab(); updateBottomNavActive('tasks');">
+                                        <div class="quick-action-icon">➕</div>
+                                        <div class="quick-action-text">
+                                            <strong>Crear Tarea</strong>
+                                            <small>Publicar un nuevo trabajo</small>
+                                        </div>
+                                    </button>
+                                    
+                                    <button class="quick-action-btn" onclick="showMyTasks(); updateBottomNavActive('tasks');">
+                                        <div class="quick-action-icon">📋</div>
+                                        <div class="quick-action-text">
+                                            <strong>Mis Tareas</strong>
+                                            <small>Ver todas mis tareas</small>
+                                        </div>
+                                    </button>
+                                `}
+                                
+                                <button class="quick-action-btn" onclick="showTabWithContent('search'); updateBottomNavActive('search');">
+                                    <div class="quick-action-icon">🔍</div>
+                                    <div class="quick-action-text">
+                                        <strong>Buscar</strong>
+                                        <small>Buscar en la plataforma</small>
+                                    </div>
+                                </button>
+                                
+                                <button class="quick-action-btn" onclick="showTabWithContent('profile'); updateBottomNavActive('profile');">
+                                    <div class="quick-action-icon">👤</div>
+                                    <div class="quick-action-text">
+                                        <strong>Mi Perfil</strong>
+                                        <small>Ver y editar perfil</small>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        } else if (isCliente()) {
+            // Dashboard para cliente - Menú Principal
+            dashboardHTML = `
+                <div class="dashboard-container">
+                    <div class="dashboard-header">
+                        <h2>📊 Menú Principal</h2>
+                        <p>Bienvenido, ${currentUser.nombre} ${currentUser.apellido}</p>
+                    </div>
+                    
+                    <div class="dashboard-quick-actions">
+                        <h3>⚡ Acciones Rápidas</h3>
+                        <p style="color: #64748b; font-size: 0.9em; margin-bottom: 20px; text-align: center;">Accede a todas las funcionalidades de la plataforma</p>
+                        <div class="quick-actions-grid">
+                            <button class="quick-action-btn" onclick="showCreateTaskTab(); updateBottomNavActive('tasks');">
+                                <div class="quick-action-icon">➕</div>
+                                <div class="quick-action-text">
+                                    <strong>Crear Tarea</strong>
+                                    <small>Publicar un nuevo trabajo</small>
+                                </div>
+                            </button>
+                            
+                            <button class="quick-action-btn" onclick="showMyTasks(); updateBottomNavActive('tasks');">
+                                <div class="quick-action-icon">📋</div>
+                                <div class="quick-action-text">
+                                    <strong>Mis Tareas</strong>
+                                    <small>Ver todas mis tareas</small>
+                                </div>
+                            </button>
+                            
+                            <button class="quick-action-btn" onclick="showTabWithContent('search'); updateBottomNavActive('search');">
+                                <div class="quick-action-icon">🔍</div>
+                                <div class="quick-action-text">
+                                    <strong>Buscar</strong>
+                                    <small>Buscar taskers</small>
+                                </div>
+                            </button>
+                            
+                            <button class="quick-action-btn" onclick="showTabWithContent('profile'); updateBottomNavActive('profile');">
+                                <div class="quick-action-icon">👤</div>
+                                <div class="quick-action-text">
+                                    <strong>Mi Perfil</strong>
+                                    <small>Ver y editar perfil</small>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else if (isTasker()) {
+            // Dashboard para tasker (incluyendo usuarios duales)
+            // Para usuarios duales, verificar aprobación del tasker
+            const aprobado = currentUser.esUsuarioDual ? (currentUser.aprobado_admin_tasker || false) : (currentUser.aprobado_admin || false);
+            
+            if (!aprobado) {
+                dashboardHTML = `
+                    <div class="dashboard-container">
+                        <div class="dashboard-header">
+                            <h2>📊 Menú Principal</h2>
+                            <p>Bienvenido, ${currentUser.nombre} ${currentUser.apellido}</p>
+                        </div>
+                        
+                        <div class="pending-approval">
+                            <h3>⏳ Esperando Aprobación</h3>
+                            <p>Tu cuenta está pendiente de aprobación por el administrador.</p>
+                            <p>Contacta al soporte para acelerar el proceso.</p>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Selector de modo compacto (toggle switch)
+                const isTaskerMode = taskerMode === 'tasker';
+                dashboardHTML = `
+                    <div class="dashboard-container">
+                        <div class="dashboard-header">
+                            <h2>📊 Menú Principal</h2>
+                            <p>Bienvenido, ${currentUser.nombre} ${currentUser.apellido}</p>
+                        </div>
+                        
+                        <div class="mode-selector-compact">
+                            <label class="mode-toggle-label">
+                                <span class="mode-label-text">🔧 Modo Tasker</span>
+                                <div class="toggle-switch">
+                                    <input type="checkbox" id="modeToggle" ${isTaskerMode ? 'checked' : ''} onchange="setTaskerMode(this.checked ? 'tasker' : 'cliente'); showTabWithContent('tasks');">
+                                    <span class="toggle-slider"></span>
+                                </div>
+                                <span class="mode-label-text">👤 Modo Cliente</span>
+                            </label>
+                            <p class="mode-hint">${isTaskerMode ? 'Buscar y aplicar a tareas' : 'Crear tareas y contratar'}</p>
+                        </div>
+                        
+                        <div class="dashboard-quick-actions">
+                            <h3>⚡ Acciones Rápidas</h3>
+                            <p style="color: #64748b; font-size: 0.9em; margin-bottom: 20px; text-align: center;">Accede a todas las funcionalidades de la plataforma</p>
+                            <div class="quick-actions-grid">
+                                ${isTaskerMode ? `
+                                    <button class="quick-action-btn" onclick="showSearchTasks(); updateBottomNavActive('tasks');">
+                                        <div class="quick-action-icon">🔍</div>
+                                        <div class="quick-action-text">
+                                            <strong>Buscar Tareas</strong>
+                                            <small>Ver tareas disponibles</small>
+                                        </div>
+                                    </button>
+                                    
+                                    <button class="quick-action-btn" onclick="showMyTasks(); updateBottomNavActive('tasks');">
+                                        <div class="quick-action-icon">📋</div>
+                                        <div class="quick-action-text">
+                                            <strong>Mis Tareas</strong>
+                                            <small>Tareas asignadas</small>
+                                        </div>
+                                    </button>
+                                ` : `
+                                    <button class="quick-action-btn" onclick="showCreateTaskTab(); updateBottomNavActive('tasks');">
+                                        <div class="quick-action-icon">➕</div>
+                                        <div class="quick-action-text">
+                                            <strong>Crear Tarea</strong>
+                                            <small>Publicar un nuevo trabajo</small>
+                                        </div>
+                                    </button>
+                                    
+                                    <button class="quick-action-btn" onclick="showMyTasks(); updateBottomNavActive('tasks');">
+                                        <div class="quick-action-icon">📋</div>
+                                        <div class="quick-action-text">
+                                            <strong>Mis Tareas</strong>
+                                            <small>Ver todas mis tareas</small>
+                                        </div>
+                                    </button>
+                                `}
+                                
+                                <button class="quick-action-btn" onclick="showTabWithContent('search'); updateBottomNavActive('search');">
+                                    <div class="quick-action-icon">🔍</div>
+                                    <div class="quick-action-text">
+                                        <strong>Buscar</strong>
+                                        <small>Buscar en la plataforma</small>
+                                    </div>
+                                </button>
+                                
+                                <button class="quick-action-btn" onclick="showTabWithContent('profile'); updateBottomNavActive('profile');">
+                                    <div class="quick-action-icon">👤</div>
+                                    <div class="quick-action-text">
+                                        <strong>Mi Perfil</strong>
+                                        <small>Ver y editar perfil</small>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        dashboardContent.innerHTML = dashboardHTML;
+        console.log('✅ Dashboard cargado correctamente');
+
+    } catch (error) {
+        console.error('❌ Error en showDashboardContent:', error);
+        alert('Error al mostrar el dashboard: ' + error.message);
     }
 }
 
@@ -2387,10 +3158,50 @@ function logout() {
     currentUser = null;
     currentToken = null;
 
+    // Remover clase del container
+    const container = document.querySelector('.container');
+    if (container) {
+        container.classList.remove('has-bottom-nav');
+    }
+
+    // Ocultar bottom navigation
+    const bottomNav = document.getElementById('bottomNav');
+    if (bottomNav) {
+        bottomNav.style.display = 'none';
+    }
+
+    // Ocultar menú hamburguesa
+    const menuToggle = document.getElementById('menuToggle');
+    if (menuToggle) {
+        menuToggle.style.display = 'none';
+    }
+
+    // Cerrar menú móvil si está abierto
+    const mobileMenu = document.getElementById('mobileMenu');
+    const menuOverlay = document.getElementById('menuOverlay');
+    if (mobileMenu && mobileMenu.classList.contains('active')) {
+        toggleMobileMenu();
+    }
+
+    // Demo button ya está oculto permanentemente
+
     // Ocultar botón de disponibilidad directamente por ID
     const availabilityBtn = document.getElementById('availabilityBtn');
     if (availabilityBtn) {
         availabilityBtn.style.display = 'none';
+    }
+
+    // Ocultar items del menú móvil
+    document.querySelectorAll('.mobile-menu-item').forEach(item => {
+        if (!item.onclick || !item.onclick.toString().includes('Demo')) {
+            item.style.display = 'none';
+        }
+    });
+
+    // Mostrar top nav (login/registro)
+    const topNav = document.getElementById('topNav');
+    if (topNav) {
+        topNav.style.display = 'flex';
     }
 
     // Restaurar pestañas originales
@@ -2419,7 +3230,10 @@ function logout() {
     });
 
     // Limpiar dashboard
-    document.getElementById('dashboardContent').innerHTML = '';
+    const dashboardContent = document.getElementById('dashboardContent');
+    if (dashboardContent) {
+        dashboardContent.innerHTML = '';
+    }
 
     // Volver a la pestaña de login
     showTab('login');
@@ -2469,10 +3283,18 @@ async function loadUserTasks() {
                                 <p><strong>Fecha:</strong> ${fecha}</p>
                                 <p><strong>Monto:</strong> $${tarea.monto_total_acordado}</p>
                             </div>
-                            ${tarea.estado === 'PENDIENTE' ? `
-                                <div class="task-actions" onclick="event.stopPropagation();">
+                            <div class="task-actions" onclick="event.stopPropagation();">
+                                ${tarea.estado === 'PENDIENTE' ? `
                                     <button class="view-applications-btn" onclick="loadTaskApplications(${tarea.id})">👥 Ver Aplicaciones</button>
-                                </div>
+                                ` : ''}
+                                ${(tarea.estado === 'PENDIENTE' && tarea.aplicaciones_count > 0) || (tarea.estado !== 'PENDIENTE' && tarea.tasker_id) ? `
+                                    <button class="chat-btn" onclick="openChatModal(${tarea.id})" title="Abrir chat">
+                                        💬 Chat
+                                        <span id="chat-badge-${tarea.id}" class="chat-badge" style="display: none;">0</span>
+                                    </button>
+                                ` : ''}
+                            </div>
+                            ${tarea.estado === 'PENDIENTE' ? `
                                 <div id="applications-${tarea.id}" class="applications-container" style="display: none;"></div>
                             ` : ''}
                         </div>
@@ -2705,6 +3527,12 @@ async function loadClientPendingTasks() {
                             </div>
                             <div class="task-actions" onclick="event.stopPropagation();">
                                 <button class="view-applications-btn" onclick="loadTaskApplications(${tarea.id})">👥 Ver Aplicaciones</button>
+                                ${tarea.aplicaciones_count > 0 ? `
+                                    <button class="chat-btn" onclick="openChatModal(${tarea.id})" title="Abrir chat">
+                                        💬 Chat
+                                        <span id="chat-badge-${tarea.id}" class="chat-badge" style="display: none;">0</span>
+                                    </button>
+                                ` : ''}
                             </div>
                             <div id="applications-${tarea.id}" class="applications-container" style="display: none;"></div>
                         </div>
@@ -2796,8 +3624,14 @@ async function loadClientAssignedTasks() {
                                 <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
                                 ${tarea.tasker_id ? '<p><strong>Tasker asignado:</strong> ID ' + tarea.tasker_id + '</p>' : ''}
                             </div>
+                            <div class="task-actions" onclick="event.stopPropagation();">
+                                ${tarea.tasker_id ? `
+                                    <button class="chat-btn" onclick="openChatModal(${tarea.id})" title="Abrir chat">
+                                        💬 Chat
+                                        <span id="chat-badge-${tarea.id}" class="chat-badge" style="display: none;">0</span>
+                                    </button>
+                                ` : ''}
                             ${estadoTarea === 'PENDIENTE_PAGO' ? `
-                                <div class="task-actions" onclick="event.stopPropagation();">
                                     <button class="confirm-payment-btn" onclick="event.stopPropagation(); confirmPayment(${tarea.id})">💳 Confirmar Pago</button>
                                 </div>
                             ` : ''}
@@ -2978,9 +3812,7 @@ async function loadTaskerAssignedTasks() {
 
         const response = await fetch(`${API_BASE}/task/my-assigned-tasks`, {
             method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${currentToken}`
-            }
+            headers: getAuthHeaders()
         });
 
         const data = await response.json();
@@ -3031,16 +3863,20 @@ async function loadTaskerAssignedTasks() {
                                 <p><strong>Fecha:</strong> ${fecha}</p>
                                 <p><strong>Monto:</strong> $${tarea.monto_total_acordado || 0}</p>
                             </div>
-                            ${estadoTarea === 'ASIGNADA' ? `
-                                <div class="task-actions" onclick="event.stopPropagation();">
+                            <div class="task-actions" onclick="event.stopPropagation();">
+                                ${tarea.cliente_id ? `
+                                    <button class="chat-btn" onclick="openChatModal(${tarea.id})" title="Abrir chat">
+                                        💬 Chat
+                                        <span id="chat-badge-${tarea.id}" class="chat-badge" style="display: none;">0</span>
+                                    </button>
+                                ` : ''}
+                                ${estadoTarea === 'ASIGNADA' ? `
                                     <button class="start-task-btn" onclick="startTask(${tarea.id})">▶️ Empezar Tarea</button>
-                                </div>
-                            ` : ''}
-                            ${estadoTarea === 'EN_PROCESO' ? `
-                                <div class="task-actions" onclick="event.stopPropagation();">
+                                ` : ''}
+                                ${estadoTarea === 'EN_PROCESO' ? `
                                     <button class="complete-task-btn" onclick="event.stopPropagation(); completeTask(${tarea.id})">✅ Finalizar Tarea</button>
-                                </div>
-                            ` : ''}
+                                ` : ''}
+                            </div>
                         </div>
                     `;
                 });
@@ -3080,10 +3916,9 @@ async function startTask(taskId) {
 
         const response = await fetch(`${API_BASE}/task/start/${taskId}`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentToken}`
-            }
+            headers: getAuthHeaders({
+                'Content-Type': 'application/json'
+            })
         });
 
         const data = await response.json();
@@ -3118,10 +3953,9 @@ async function completeTask(taskId) {
 
         const response = await fetch(`${API_BASE}/task/complete/${taskId}`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentToken}`
-            }
+            headers: getAuthHeaders({
+                'Content-Type': 'application/json'
+            })
         });
 
         const data = await response.json();
@@ -3200,10 +4034,9 @@ async function confirmPaymentReceived(taskId) {
 
         const response = await fetch(`${API_BASE}/task/confirm-payment-received/${taskId}`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentToken}`
-            }
+            headers: getAuthHeaders({
+                'Content-Type': 'application/json'
+            })
         });
 
         const data = await response.json();
@@ -3255,9 +4088,7 @@ async function loadTaskerPendingPaymentTasks() {
 
         const response = await fetch(`${API_BASE}/task/my-assigned-tasks`, {
             method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${currentToken}`
-            }
+            headers: getAuthHeaders()
         });
 
         const data = await response.json();
@@ -3378,9 +4209,7 @@ async function loadTaskerHistoryTasks() {
 
         const response = await fetch(`${API_BASE}/task/my-assigned-tasks`, {
             method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${currentToken}`
-            }
+            headers: getAuthHeaders()
         });
 
         const data = await response.json();
@@ -3660,9 +4489,7 @@ async function loadAvailableTasks(filtros = {}) {
 
         const response = await fetch(url, {
             method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${currentToken}`
-            }
+            headers: getAuthHeaders()
         });
 
         const data = await response.json();
@@ -3685,7 +4512,8 @@ async function loadAvailableTasks(filtros = {}) {
 
                 tareas.forEach(tarea => {
                     const fecha = new Date(tarea.fecha_hora_requerida).toLocaleString('es-ES');
-                    const tipoServicio = tarea.tipo_servicio === 'EXPRESS' ? '⚡ Express' : '🎯 Especialista';
+                    const categoriaTarea = categoriasDisponibles.find(cat => cat.id === tarea.tipo_servicio);
+                    const tipoServicio = categoriaTarea ? `${categoriaTarea.icono} ${categoriaTarea.nombre}` : tarea.tipo_servicio;
                     
                     // Verificar que el cliente existe antes de acceder a sus propiedades
                     const nombreCliente = tarea.cliente && tarea.cliente.nombre ? tarea.cliente.nombre : 'N/A';
@@ -3708,7 +4536,11 @@ async function loadAvailableTasks(filtros = {}) {
                             </div>
                             <div class="task-actions" onclick="event.stopPropagation();">
                                 ${tarea.ya_aplico ? 
-                                    '<span class="already-applied">✅ Ya aplicaste a esta tarea</span>' : 
+                                    `<span class="already-applied">✅ Ya aplicaste a esta tarea</span>
+                                     <button class="chat-btn" onclick="openChatModal(${tarea.id})" title="Abrir chat">
+                                         💬 Chat
+                                         <span id="chat-badge-${tarea.id}" class="chat-badge" style="display: none;">0</span>
+                                     </button>` : 
                                     `<button class="accept-btn" onclick="applyToTask(${tarea.id})">📝 Aplicar a Tarea</button>`
                                 }
                             </div>
@@ -3784,6 +4616,24 @@ function initializeFilters() {
     if (clearBtn) {
         clearBtn.addEventListener('click', clearFilters);
     }
+
+    // Cargar categorías en el select de filtros
+    loadCategorias().then(() => {
+        const filterSelect = document.getElementById('filterTipoServicio');
+        if (filterSelect) {
+            // Limpiar opciones excepto "Todos"
+            while (filterSelect.options.length > 1) {
+                filterSelect.remove(1);
+            }
+            // Agregar categorías
+            categoriasDisponibles.forEach(categoria => {
+                if (categoria.activa) {
+                    const option = new Option(`${categoria.icono} ${categoria.nombre}`, categoria.id);
+                    filterSelect.add(option);
+                }
+            });
+        }
+    });
 
     // Agregar funcionalidad de Enter en inputs para aplicar filtros
     const filterInputs = [
@@ -3978,13 +4828,13 @@ function selectServiceType(serviceType) {
         console.log('❌ ¡No se encontró la card para serviceType:', serviceType, '!');
     }
 
-    // Actualizar categorías disponibles (solo si estamos en el paso 2 o avanzamos)
-    if (currentWizardStep >= 2) {
-        updateServiceCategories(serviceType);
-    }
+    // Actualizar categorías disponibles inmediatamente cuando se selecciona
+    updateServiceCategories(serviceType);
 
     // Mostrar feedback visual
-    showMessage(`✅ ¡Servicio ${serviceType === 'EXPRESS' ? 'Express' : 'Especialista'} seleccionado!`, 'success');
+    const categoria = categoriasDisponibles.find(cat => cat.id === serviceType);
+    const nombreCategoria = categoria ? categoria.nombre : serviceType;
+    showMessage(`✅ ¡Servicio ${nombreCategoria} seleccionado!`, 'success');
 
     // Actualizar el título del wizard para mostrar selección
     updateWizardUI();
@@ -3996,32 +4846,185 @@ function selectServiceType(serviceType) {
     }
 }
 
+// Variable global para almacenar categorías
+let categoriasDisponibles = [];
+
+// Función para actualizar especialidades según la categoría principal seleccionada
+function updateTaskerEspecialidades() {
+    const categoriaSelect = document.getElementById('taskerCategoriaPrincipal');
+    const especialidadSelect = document.getElementById('taskerEspecialidad');
+    
+    if (!categoriaSelect || !especialidadSelect) return;
+    
+    const categoriaId = categoriaSelect.value;
+    
+    // Limpiar opciones existentes excepto la primera
+    while (especialidadSelect.options.length > 1) {
+        especialidadSelect.remove(1);
+    }
+    
+    if (!categoriaId) {
+        especialidadSelect.innerHTML = '<option value="" disabled selected>👷 Selecciona primero una categoría</option>';
+        return;
+    }
+    
+    // Buscar la categoría seleccionada
+    const categoria = categoriasDisponibles.find(cat => cat.id === categoriaId);
+    
+    if (categoria && categoria.subcategorias && categoria.subcategorias.length > 0) {
+        // Agregar subcategorías como especialidades
+        categoria.subcategorias.forEach(subcat => {
+            const option = new Option(subcat.nombre, subcat.id);
+            especialidadSelect.add(option);
+        });
+    } else {
+        // Si no hay subcategorías, agregar opción genérica
+        const option = new Option('General', 'general');
+        especialidadSelect.add(option);
+    }
+}
+
+// Función para cargar categorías en el formulario de registro
+async function loadCategoriasForRegistration() {
+    try {
+        const response = await fetch(`${API_BASE}/task/categorias`);
+        
+        if (response.ok) {
+            const data = await response.json();
+            categoriasDisponibles = data.categorias || [];
+            
+            // Llenar el select de categoría principal
+            const categoriaSelect = document.getElementById('taskerCategoriaPrincipal');
+            if (categoriaSelect) {
+                // Limpiar opciones excepto la primera
+                while (categoriaSelect.options.length > 1) {
+                    categoriaSelect.remove(1);
+                }
+                
+                // Agregar categorías activas
+                categoriasDisponibles.forEach(categoria => {
+                    if (categoria.activa) {
+                        const option = new Option(`${categoria.icono} ${categoria.nombre}`, categoria.id);
+                        categoriaSelect.add(option);
+                    }
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Error al cargar categorías para registro:', error);
+    }
+}
+
+// Función para cargar categorías desde el backend
+async function loadCategorias() {
+    try {
+        // Intentar primero el endpoint público (no requiere autenticación)
+        const response = await fetch(`${API_BASE}/task/categorias`);
+        
+        if (response.ok) {
+            const data = await response.json();
+            categoriasDisponibles = data.categorias || [];
+            console.log('✅ Categorías cargadas:', categoriasDisponibles);
+            return categoriasDisponibles;
+        } else {
+            // Si falla, usar categorías por defecto
+            console.warn('⚠️ No se pudieron cargar categorías, usando valores por defecto');
+            categoriasDisponibles = [
+                { id: 'EXPRESS', nombre: 'Express', icono: '⚡', subcategorias: [] },
+                { id: 'OFICIOS', nombre: 'Oficios', icono: '🔧', subcategorias: [] },
+                { id: 'SERVICIOS_ESPECIALIZADOS', nombre: 'Servicios Especializados', icono: '🎯', subcategorias: [] },
+                { id: 'PROFESIONALES', nombre: 'Profesionales', icono: '👔', subcategorias: [] }
+            ];
+            return categoriasDisponibles;
+        }
+    } catch (error) {
+        console.error('❌ Error al cargar categorías:', error);
+        // Usar categorías por defecto en caso de error
+        categoriasDisponibles = [
+            { id: 'EXPRESS', nombre: 'Express', icono: '⚡', subcategorias: [] },
+            { id: 'OFICIOS', nombre: 'Oficios', icono: '🔧', subcategorias: [] },
+            { id: 'SERVICIOS_ESPECIALIZADOS', nombre: 'Servicios Especializados', icono: '🎯', subcategorias: [] },
+            { id: 'PROFESIONALES', nombre: 'Profesionales', icono: '👔', subcategorias: [] }
+        ];
+        return categoriasDisponibles;
+    }
+}
+
 // Función para actualizar categorías según el tipo de servicio
 function updateServiceCategories(serviceType) {
     const categoriaSelect = document.getElementById('taskCategoria');
+    if (!categoriaSelect) return;
 
     // Limpiar opciones existentes excepto la primera
     while (categoriaSelect.options.length > 1) {
         categoriaSelect.remove(1);
     }
 
-    // Agregar categorías según el tipo
-    const categorias = serviceType === 'EXPRESS' ? {
-        'plomeria': '🔧 Plomería',
-        'electricidad': '⚡ Electricidad',
-        'jardineria': '🌱 Jardinería',
-        'otros': '🔧 Reparaciones menores'
-    } : {
-        'carpinteria': '🔨 Carpintería',
-        'pintura': '🎨 Pintura y decoración',
-        'reformas': '🏠 Reformas',
-        'instalaciones': '🛠️ Instalaciones'
-    };
-
-    Object.entries(categorias).forEach(([value, text]) => {
-        const option = new Option(text, value);
+    // Buscar la categoría seleccionada en las categorías disponibles
+    const categoria = categoriasDisponibles.find(cat => cat.id === serviceType);
+    
+    if (categoria && categoria.subcategorias && categoria.subcategorias.length > 0) {
+        // Agregar subcategorías de la categoría seleccionada
+        categoria.subcategorias.forEach(subcat => {
+            const option = new Option(subcat.nombre, subcat.id);
+            categoriaSelect.add(option);
+        });
+    } else {
+        // Si no hay subcategorías, agregar opción genérica
+        const option = new Option('General', 'general');
         categoriaSelect.add(option);
+    }
+}
+
+// Función para renderizar las categorías en el wizard
+function renderCategoriasInWizard() {
+    // Buscar ambos contenedores (cliente y tasker en modo cliente)
+    const container = document.getElementById('serviceSelectionContainer');
+    const containerTasker = document.getElementById('serviceSelectionContainerTasker');
+    
+    const containers = [container, containerTasker].filter(c => c !== null);
+
+    if (containers.length === 0) {
+        console.warn('⚠️ No se encontraron contenedores para renderizar categorías');
+        return;
+    }
+
+    if (categoriasDisponibles.length === 0) {
+        containers.forEach(c => {
+            c.innerHTML = '<p>No hay categorías disponibles. Cargando...</p>';
+        });
+        return;
+    }
+
+    let html = '';
+    categoriasDisponibles.forEach(categoria => {
+        if (!categoria.activa) return; // Saltar categorías inactivas
+        
+        // Crear lista de subcategorías para mostrar (máximo 3 en móvil, 4 en desktop)
+        const maxSubcategorias = window.innerWidth <= 768 ? 3 : 4;
+        const subcategoriasList = categoria.subcategorias && categoria.subcategorias.length > 0
+            ? categoria.subcategorias.slice(0, maxSubcategorias).map(sub => `<li>${sub.nombre}</li>`).join('')
+            : '';
+
+        html += `
+            <div class="service-card" data-service="${categoria.id}">
+                <div class="service-icon">${categoria.icono || '🔧'}</div>
+                <h4>${categoria.nombre}</h4>
+                <p class="service-desc">${categoria.descripcion || categoria.tiempo_estimado || 'Servicios especializados'}</p>
+                ${subcategoriasList ? `<ul class="service-features">${subcategoriasList}</ul>` : ''}
+                <button class="select-service-btn" data-service="${categoria.id}">
+                    Seleccionar
+                </button>
+            </div>
+        `;
     });
+
+    // Actualizar ambos contenedores
+    containers.forEach(c => {
+        c.innerHTML = html;
+    });
+    
+    console.log('✅ Categorías renderizadas en el wizard');
 }
 
 // Función para ir al siguiente paso
@@ -4138,7 +5141,11 @@ function updateWizardUI() {
     // Actualizar título
     const titles = {
         1: selectedServiceType
-            ? `Paso 1: Servicio ${selectedServiceType === 'EXPRESS' ? 'Express' : 'Especialista'} seleccionado ✓`
+            ? (() => {
+                const categoria = categoriasDisponibles.find(cat => cat.id === selectedServiceType);
+                const nombre = categoria ? categoria.nombre : selectedServiceType;
+                return `Paso 1: Servicio ${nombre} seleccionado ✓`;
+            })()
             : 'Paso 1: ¿Qué tipo de servicio necesitas?',
         2: 'Paso 2: Describe tu tarea',
         3: 'Paso 3: ¿Dónde y cuándo?',
@@ -4237,10 +5244,12 @@ function updateTaskPreview() {
     }
     if (previewCategory) previewCategory.textContent = categoria;
     if (previewServiceIcon) {
-        previewServiceIcon.textContent = selectedServiceType === 'EXPRESS' ? '⚡' : '🎯';
+        const categoria = categoriasDisponibles.find(cat => cat.id === selectedServiceType);
+        previewServiceIcon.textContent = categoria ? categoria.icono : '🔧';
     }
     if (previewServiceType) {
-        previewServiceType.textContent = selectedServiceType === 'EXPRESS' ? 'Express' : 'Especialista';
+        const categoria = categoriasDisponibles.find(cat => cat.id === selectedServiceType);
+        previewServiceType.textContent = categoria ? categoria.nombre : selectedServiceType;
     }
     if (previewBudget) previewBudget.textContent = `$${presupuesto.toFixed(0)}`;
     
@@ -4513,136 +5522,439 @@ window.debugWizardStatus = function() {
 
 // ========== FUNCIONES DE PERFIL ==========
 
+// Función para generar avatar con iniciales
+function getAvatarInitials(nombre, apellido) {
+    const first = (nombre || '').charAt(0).toUpperCase();
+    const last = (apellido || '').charAt(0).toUpperCase();
+    return first + last || '👤';
+}
+
 // Función para mostrar el contenido del perfil
 function showProfileContent() {
     const profileContent = document.getElementById('profileContent');
     if (!profileContent) return;
 
     const userType = currentUser.tipo;
+    const esUsuarioDual = currentUser.esUsuarioDual || false;
     let profileHTML = '';
 
-    if (userType === 'cliente') {
+    // Si es usuario dual, mostrar perfil unificado
+    if (esUsuarioDual) {
+        const initials = getAvatarInitials(currentUser.nombre, currentUser.apellido);
         profileHTML = `
             <div class="profile-container">
-                <h2>👤 Mi Perfil</h2>
-                <form id="profileForm" class="profile-form">
-                    <div class="form-group">
-                        <label>Nombre *</label>
-                        <input type="text" id="profileNombre" value="${currentUser.nombre || ''}" required>
+                <!-- Header Visual con Avatar -->
+                <div class="profile-header-modern">
+                    <div class="profile-avatar-large">${initials}</div>
+                    <div class="profile-header-info">
+                        <h1 class="profile-name">${currentUser.nombre || ''} ${currentUser.apellido || ''}</h1>
+                        <p class="profile-email">${currentUser.email || ''}</p>
+                        <div class="profile-badges-modern">
+                            <span class="badge-modern badge-cliente-modern">
+                                <span class="badge-icon">👤</span>
+                                <span>Cliente</span>
+                            </span>
+                            <span class="badge-modern badge-tasker-modern">
+                                <span class="badge-icon">🔧</span>
+                                <span>Tasker</span>
+                            </span>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label>Apellido *</label>
-                        <input type="text" id="profileApellido" value="${currentUser.apellido || ''}" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Teléfono *</label>
-                        <input type="tel" id="profileTelefono" value="${currentUser.telefono || ''}" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Email</label>
-                        <input type="email" id="profileEmail" value="${currentUser.email || ''}" disabled>
-                        <small>El email no se puede modificar</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Ubicación por defecto</label>
-                        <input type="text" id="profileUbicacion" value="${currentUser.ubicacion_default || ''}" placeholder="Ej: Av. Corrientes 1234, CABA">
-                    </div>
-                    <button type="submit" class="btn-primary">💾 Guardar Cambios</button>
-                </form>
+                </div>
+
+                <!-- Tarjetas de Información Guardada -->
+                <div id="profileInfoCards" class="profile-info-cards">
+                    <!-- Se llenará dinámicamente después de cargar datos -->
+                </div>
+
+                <!-- Formulario de Edición -->
+                <div class="profile-edit-section">
+                    <button id="toggleEditBtn" class="btn-toggle-edit" onclick="toggleProfileEdit()">
+                        <span class="edit-icon">✏️</span>
+                        <span>Editar Perfil</span>
+                    </button>
+                    
+                    <form id="profileForm" class="profile-form" style="display: none;">
+                        <div class="form-section">
+                            <div class="section-header">
+                                <span class="section-icon">👤</span>
+                                <h3>Información Personal</h3>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group half">
+                                    <label><span class="label-icon">📝</span> Nombre *</label>
+                                    <input type="text" id="profileNombre" value="${currentUser.nombre || ''}" required>
+                                </div>
+                                <div class="form-group half">
+                                    <label><span class="label-icon">📝</span> Apellido *</label>
+                                    <input type="text" id="profileApellido" value="${currentUser.apellido || ''}" required>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">📞</span> Teléfono *</label>
+                                <input type="tel" id="profileTelefono" value="${currentUser.telefono || ''}" required>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">📧</span> Email</label>
+                                <input type="email" id="profileEmail" value="${currentUser.email || ''}" disabled>
+                                <small>El email no se puede modificar</small>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">📍</span> Ubicación por defecto</label>
+                                <input type="text" id="profileUbicacion" value="${currentUser.ubicacion_default || ''}" placeholder="Ej: Av. Corrientes 1234, CABA">
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <span class="section-icon">🔧</span>
+                                <h3>Información de Tasker</h3>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">🏷️</span> Categoría Principal</label>
+                                <select id="profileCategoriaPrincipal">
+                                    <option value="">Seleccionar categoría</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">⭐</span> Especialidades</label>
+                                <select id="profileEspecialidades" multiple>
+                                </select>
+                                <small>Mantén presionado Ctrl (o Cmd en Mac) para seleccionar múltiples</small>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">🆔</span> CUIT (opcional)</label>
+                                <input type="text" id="profileCuit" placeholder="XX-XXXXXXXX-X">
+                            </div>
+                            <div class="form-group">
+                                <label class="checkbox-label-modern">
+                                    <input type="checkbox" id="profileMonotributista">
+                                    <span class="checkmark"></span>
+                                    <span>Soy monotributista</span>
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">📄</span> Descripción Profesional</label>
+                                <textarea id="profileDescripcion" rows="4" placeholder="Cuéntanos sobre tu experiencia y especialidades..."></textarea>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary btn-save">
+                                <span>💾</span>
+                                <span>Guardar Cambios</span>
+                            </button>
+                            <button type="button" class="btn-secondary" onclick="toggleProfileEdit()">
+                                <span>Cancelar</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                
                 <div class="my-ratings-section">
+                    <div class="section-header">
+                        <span class="section-icon">⭐</span>
+                        <h3>Mis Calificaciones</h3>
+                    </div>
+                    <div id="myRatingsContainer"></div>
+                </div>
+            </div>
+        `;
+    } else if (userType === 'cliente') {
+        const initials = getAvatarInitials(currentUser.nombre, currentUser.apellido);
+        profileHTML = `
+            <div class="profile-container">
+                <!-- Header Visual con Avatar -->
+                <div class="profile-header-modern">
+                    <div class="profile-avatar-large">${initials}</div>
+                    <div class="profile-header-info">
+                        <h1 class="profile-name">${currentUser.nombre || ''} ${currentUser.apellido || ''}</h1>
+                        <p class="profile-email">${currentUser.email || ''}</p>
+                        <div class="profile-badges-modern">
+                            <span class="badge-modern badge-cliente-modern">
+                                <span class="badge-icon">👤</span>
+                                <span>Cliente</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Formulario de Edición -->
+                <div class="profile-edit-section">
+                    <button id="toggleEditBtn" class="btn-toggle-edit" onclick="toggleProfileEdit()">
+                        <span class="edit-icon">✏️</span>
+                        <span>Editar Perfil</span>
+                    </button>
+                    
+                    <form id="profileForm" class="profile-form" style="display: none;">
+                        <div class="form-section">
+                            <div class="section-header">
+                                <span class="section-icon">👤</span>
+                                <h3>Información Personal</h3>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group half">
+                                    <label><span class="label-icon">📝</span> Nombre *</label>
+                                    <input type="text" id="profileNombre" value="${currentUser.nombre || ''}" required>
+                                </div>
+                                <div class="form-group half">
+                                    <label><span class="label-icon">📝</span> Apellido *</label>
+                                    <input type="text" id="profileApellido" value="${currentUser.apellido || ''}" required>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">📞</span> Teléfono *</label>
+                                <input type="tel" id="profileTelefono" value="${currentUser.telefono || ''}" required>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">📧</span> Email</label>
+                                <input type="email" id="profileEmail" value="${currentUser.email || ''}" disabled>
+                                <small>El email no se puede modificar</small>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">📍</span> Ubicación por defecto</label>
+                                <input type="text" id="profileUbicacion" value="${currentUser.ubicacion_default || ''}" placeholder="Ej: Av. Corrientes 1234, CABA">
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary btn-save">
+                                <span>💾</span>
+                                <span>Guardar Cambios</span>
+                            </button>
+                            <button type="button" class="btn-secondary" onclick="toggleProfileEdit()">
+                                <span>Cancelar</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                
+                <!-- Sección para convertirse en Tasker -->
+                <div class="become-tasker-section" style="margin-top: 40px; padding: 25px; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-radius: 16px; border: 2px solid #e2e8f0;">
+                    <h3 style="color: #6366f1; margin-bottom: 15px;">🔧 ¿Quieres trabajar como Tasker?</h3>
+                    <p style="color: #64748b; margin-bottom: 20px;">
+                        Regístrate como Tasker para ofrecer tus servicios y ganar dinero. Podrás trabajar como Tasker y seguir usando la plataforma como Cliente.
+                    </p>
+                    <div style="background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #e2e8f0;">
+                        <h4 style="color: #1e293b; margin-bottom: 15px;">✨ Beneficios de ser Tasker:</h4>
+                        <ul style="list-style: none; padding: 0; margin: 0;">
+                            <li style="padding: 8px 0; color: #475569;">✅ Ofrece tus servicios y gana dinero</li>
+                            <li style="padding: 8px 0; color: #475569;">✅ Construye tu reputación con calificaciones</li>
+                            <li style="padding: 8px 0; color: #475569;">✅ Trabaja cuando quieras (disponibilidad flexible)</li>
+                            <li style="padding: 8px 0; color: #475569;">✅ Puedes seguir usando la app como Cliente</li>
+                        </ul>
+                    </div>
+                    <button onclick="showTab('register'); document.getElementById('userType').value = 'tasker'; toggleUserForm();" class="btn-primary" style="width: 100%;">
+                        🚀 Registrarse como Tasker
+                    </button>
+                    <p style="text-align: center; margin-top: 15px; color: #94a3b8; font-size: 0.9em;">
+                        Necesitarás completar tu perfil de Tasker con documentos y especialidades
+                    </p>
+                </div>
+                
+                <div class="my-ratings-section" style="margin-top: 40px;">
                     <h3>⭐ Mis Calificaciones</h3>
                     <div id="myRatingsContainer"></div>
                 </div>
             </div>
         `;
     } else if (userType === 'tasker') {
-        // Obtener datos completos del tasker
-        loadTaskerProfileForEdit();
+        const initials = getAvatarInitials(currentUser.nombre, currentUser.apellido);
         profileHTML = `
             <div class="profile-container">
-                <h2>👤 Mi Perfil</h2>
-                <form id="profileForm" class="profile-form">
-                    <div class="form-row">
-                        <div class="form-group half">
-                            <label>Nombre *</label>
-                            <input type="text" id="profileNombre" value="${currentUser.nombre || ''}" required>
-                        </div>
-                        <div class="form-group half">
-                            <label>Apellido *</label>
-                            <input type="text" id="profileApellido" value="${currentUser.apellido || ''}" required>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Teléfono *</label>
-                        <input type="tel" id="profileTelefono" value="${currentUser.telefono || ''}" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Email</label>
-                        <input type="email" id="profileEmail" value="${currentUser.email || ''}" disabled>
-                        <small>El email no se puede modificar</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Categoría Principal *</label>
-                        <select id="profileCategoria" required>
-                            <option value="">Selecciona una categoría</option>
-                            <option value="EXPRESS">⚡ Express</option>
-                            <option value="OFICIOS">🔧 Oficios</option>
-                        </select>
-                    </div>
-                    <div class="form-group" id="especialidadesGroup" style="display: none;">
-                        <label>Especialidades (si aplica)</label>
-                        <div class="checkbox-group">
-                            <label><input type="checkbox" value="Plomería"> 🔧 Plomería</label>
-                            <label><input type="checkbox" value="Albañilería"> 🧱 Albañilería</label>
-                            <label><input type="checkbox" value="Electricista"> ⚡ Electricista</label>
-                            <label><input type="checkbox" value="Gasista"> 🔥 Gasista</label>
-                            <label><input type="checkbox" value="Carpintería"> 🔨 Carpintería</label>
-                            <label><input type="checkbox" value="Pintura"> 🎨 Pintura</label>
+                <!-- Header Visual con Avatar -->
+                <div class="profile-header-modern">
+                    <div class="profile-avatar-large">${initials}</div>
+                    <div class="profile-header-info">
+                        <h1 class="profile-name">${currentUser.nombre || ''} ${currentUser.apellido || ''}</h1>
+                        <p class="profile-email">${currentUser.email || ''}</p>
+                        <div class="profile-badges-modern">
+                            <span class="badge-modern badge-tasker-modern">
+                                <span class="badge-icon">🔧</span>
+                                <span>Tasker</span>
+                            </span>
+                            <span class="badge-modern badge-cliente-modern">
+                                <span class="badge-icon">👤</span>
+                                <span>También Cliente</span>
+                            </span>
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label>Skills / Habilidades (separadas por comas)</label>
-                        <input type="text" id="profileSkills" placeholder="Ej: Reparación de grifos, Instalación eléctrica">
-                        <small>Lista tus habilidades principales</small>
+                </div>
+
+                <!-- Tarjetas de Información Guardada -->
+                <div id="profileInfoCards" class="profile-info-cards">
+                    <!-- Se llenará dinámicamente después de cargar datos -->
+                </div>
+
+                <!-- Formulario de Edición -->
+                <div class="profile-edit-section">
+                    <button id="toggleEditBtn" class="btn-toggle-edit" onclick="toggleProfileEdit()">
+                        <span class="edit-icon">✏️</span>
+                        <span>Editar Perfil</span>
+                    </button>
+                    
+                    <form id="profileForm" class="profile-form" style="display: none;">
+                        <div class="form-section">
+                            <div class="section-header">
+                                <span class="section-icon">👤</span>
+                                <h3>Información Personal</h3>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group half">
+                                    <label><span class="label-icon">📝</span> Nombre *</label>
+                                    <input type="text" id="profileNombre" value="${currentUser.nombre || ''}" required>
+                                </div>
+                                <div class="form-group half">
+                                    <label><span class="label-icon">📝</span> Apellido *</label>
+                                    <input type="text" id="profileApellido" value="${currentUser.apellido || ''}" required>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">📞</span> Teléfono *</label>
+                                <input type="tel" id="profileTelefono" value="${currentUser.telefono || ''}" required>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">📧</span> Email</label>
+                                <input type="email" id="profileEmail" value="${currentUser.email || ''}" disabled>
+                                <small>El email no se puede modificar</small>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <span class="section-icon">🔧</span>
+                                <h3>Información Profesional</h3>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">🏷️</span> Categoría Principal *</label>
+                                <select id="profileCategoria" required>
+                                    <option value="">Selecciona una categoría</option>
+                                    <option value="EXPRESS">⚡ Express</option>
+                                    <option value="OFICIOS">🔧 Oficios</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="especialidadesGroup" style="display: none;">
+                                <label><span class="label-icon">⭐</span> Especialidades (si aplica)</label>
+                                <div class="checkbox-group">
+                                    <label><input type="checkbox" value="Plomería"> 🔧 Plomería</label>
+                                    <label><input type="checkbox" value="Albañilería"> 🧱 Albañilería</label>
+                                    <label><input type="checkbox" value="Electricista"> ⚡ Electricista</label>
+                                    <label><input type="checkbox" value="Gasista"> 🔥 Gasista</label>
+                                    <label><input type="checkbox" value="Carpintería"> 🔨 Carpintería</label>
+                                    <label><input type="checkbox" value="Pintura"> 🎨 Pintura</label>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">🎯</span> Skills / Habilidades (separadas por comas)</label>
+                                <input type="text" id="profileSkills" placeholder="Ej: Reparación de grifos, Instalación eléctrica">
+                                <small>Lista tus habilidades principales</small>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">📜</span> Licencias (separadas por comas)</label>
+                                <input type="text" id="profileLicencias" placeholder="Ej: Licencia de conducir, Matrícula de gasista">
+                                <small>Lista tus licencias y certificaciones</small>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">📄</span> Descripción Profesional</label>
+                                <textarea id="profileDescripcion" rows="4" placeholder="Cuéntanos sobre tu experiencia y especialidades..."></textarea>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <div class="section-header">
+                                <span class="section-icon">💳</span>
+                                <h3>Información de Pago</h3>
+                            </div>
+                            <div class="form-group">
+                                <label><span class="label-icon">🏦</span> CVU/CBU (para recibir pagos)</label>
+                                <input type="text" id="profileCVUCBU" placeholder="0000003100000000000001">
+                                <small>Tu CVU o CBU para recibir pagos</small>
+                            </div>
+                            <div class="form-group">
+                                <label class="checkbox-label-modern">
+                                    <input type="checkbox" id="profileDisponible" checked>
+                                    <span class="checkmark"></span>
+                                    <span>Estoy disponible para trabajar</span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn-primary btn-save">
+                                <span>💾</span>
+                                <span>Guardar Cambios</span>
+                            </button>
+                            <button type="button" class="btn-secondary" onclick="toggleProfileEdit()">
+                                <span>Cancelar</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                
+                <!-- Sección de funcionalidades de Cliente para Taskers -->
+                <div class="client-features-section" style="margin-top: 40px; padding: 25px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border-radius: 16px; border: 2px solid #86efac;">
+                    <h3 style="color: #166534; margin-bottom: 15px;">👤 Funcionalidades de Cliente</h3>
+                    <p style="color: #166534; margin-bottom: 20px; opacity: 0.9;">
+                        Como Tasker, también puedes usar la plataforma como Cliente. Crea tareas y contrata otros taskers cuando necesites servicios.
+                    </p>
+                    <div style="background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #86efac;">
+                        <h4 style="color: #1e293b; margin-bottom: 15px;">✨ Puedes:</h4>
+                        <ul style="list-style: none; padding: 0; margin: 0;">
+                            <li style="padding: 8px 0; color: #475569;">✅ Crear tareas y contratar otros taskers</li>
+                            <li style="padding: 8px 0; color: #475569;">✅ Ver y gestionar tus tareas como cliente</li>
+                            <li style="padding: 8px 0; color: #475569;">✅ Calificar a otros taskers</li>
+                            <li style="padding: 8px 0; color: #475569;">✅ Buscar y ver perfiles de taskers</li>
+                        </ul>
                     </div>
-                    <div class="form-group">
-                        <label>Licencias (separadas por comas)</label>
-                        <input type="text" id="profileLicencias" placeholder="Ej: Licencia de conducir, Matrícula de gasista">
-                        <small>Lista tus licencias y certificaciones</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Descripción Profesional</label>
-                        <textarea id="profileDescripcion" rows="4" placeholder="Cuéntanos sobre tu experiencia y especialidades..."></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>CVU/CBU (para recibir pagos)</label>
-                        <input type="text" id="profileCVUCBU" placeholder="0000003100000000000001">
-                        <small>Tu CVU o CBU para recibir pagos</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Disponibilidad</label>
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="profileDisponible" checked>
-                            Estoy disponible para trabajar
-                        </label>
-                    </div>
-                    <button type="submit" class="btn-primary">💾 Guardar Cambios</button>
-                </form>
-                <div class="my-ratings-section">
+                    <button onclick="showTabWithContent('tasks')" class="btn-primary" style="width: 100%; background: #10b981;">
+                        📋 Ir a Mis Tareas (Modo Cliente)
+                    </button>
+                </div>
+                
+                <div class="my-ratings-section" style="margin-top: 40px;">
                     <h3>⭐ Mis Calificaciones</h3>
                     <div id="myRatingsContainer"></div>
                 </div>
             </div>
         `;
+        
+        // Cargar datos completos del tasker después de renderizar
+        setTimeout(() => {
+            loadTaskerProfileForEdit();
+        }, 100);
     }
 
     profileContent.innerHTML = profileHTML;
 
     // Cargar datos completos después de renderizar
     setTimeout(() => {
-        if (userType === 'tasker') {
+        if (esUsuarioDual) {
+            // Cargar datos de ambos perfiles
+            loadClienteProfileForEdit();
             loadTaskerProfileForEdit();
-        } else if (userType === 'cliente') {
+            // Cargar categorías para el select
+            loadCategoriasForRegistration().then(() => {
+                const categoriaSelect = document.getElementById('profileCategoriaPrincipal');
+                if (categoriaSelect) {
+                    categoriasDisponibles.forEach(categoria => {
+                        if (categoria.activa) {
+                            const option = new Option(`${categoria.icono} ${categoria.nombre}`, categoria.id);
+                            if (currentUser.categoria_principal === categoria.id) {
+                                option.selected = true;
+                            }
+                            categoriaSelect.add(option);
+                        }
+                    });
+                    // Actualizar especialidades según categoría seleccionada
+                    updateProfileEspecialidades();
+                    
+                    // Agregar event listener para cambios
+                    categoriaSelect.addEventListener('change', updateProfileEspecialidades);
+                }
+            });
+        } else if (isTasker()) {
+            loadTaskerProfileForEdit();
+        } else if (isCliente()) {
             loadClienteProfileForEdit();
         }
         
@@ -4671,10 +5983,10 @@ function showProfileContent() {
 // Función para cargar perfil completo del cliente para editar
 async function loadClienteProfileForEdit() {
     try {
-        const response = await fetch(`${API_BASE}/cliente/profile/${currentUser.id}`, {
-            headers: {
-                'Authorization': `Bearer ${currentToken}`
-            }
+        // Para usuarios duales, usar cliente_id; para clientes puros, usar id
+        const clienteId = currentUser.esUsuarioDual ? (currentUser.cliente_id || currentUser.id) : currentUser.id;
+        const response = await fetch(`${API_BASE}/cliente/profile/${clienteId}`, {
+            headers: getAuthHeaders()
         });
 
         if (response.ok) {
@@ -4711,52 +6023,79 @@ async function loadClienteProfileForEdit() {
 // Función para cargar perfil completo del tasker para editar
 async function loadTaskerProfileForEdit() {
     try {
-        const response = await fetch(`${API_BASE}/tasker/profile/${currentUser.id}`, {
-            headers: {
-                'Authorization': `Bearer ${currentToken}`
-            }
+        // Si es usuario dual, usar tasker_id; si no, usar el id normal
+        const taskerId = currentUser.esUsuarioDual ? (currentUser.tasker_id || currentUser.id) : currentUser.id;
+        const response = await fetch(`${API_BASE}/tasker/profile/${taskerId}`, {
+            headers: getAuthHeaders({}, 'tasker') // Forzar modo tasker para cargar perfil de tasker
         });
 
         if (response.ok) {
             const data = await response.json();
             const tasker = data.tasker;
 
-            // Actualizar currentUser con los datos más recientes
+            // Actualizar currentUser con los datos más recientes del tasker
             Object.assign(currentUser, {
-                nombre: tasker.nombre,
-                apellido: tasker.apellido,
-                telefono: tasker.telefono,
-                disponible: tasker.disponible
+                categoria_principal: tasker.categoria_principal,
+                especialidades: tasker.especialidades,
+                cuit: tasker.cuit,
+                monotributista_check: tasker.monotributista_check,
+                descripcion_profesional: tasker.descripcion_profesional,
+                disponible: tasker.disponible || currentUser.disponible_tasker
             });
 
             // Actualizar botón de disponibilidad
-            updateAvailabilityButton();
-
-            // Llenar campos básicos del formulario
-            if (document.getElementById('profileNombre')) {
-                document.getElementById('profileNombre').value = tasker.nombre || '';
-            }
-            if (document.getElementById('profileApellido')) {
-                document.getElementById('profileApellido').value = tasker.apellido || '';
-            }
-            if (document.getElementById('profileTelefono')) {
-                document.getElementById('profileTelefono').value = tasker.telefono || '';
+            if (isTasker()) {
+                updateAvailabilityButton();
             }
 
-            // Llenar campos específicos del tasker
-            if (document.getElementById('profileCategoria')) {
-                document.getElementById('profileCategoria').value = tasker.categoria_principal || '';
-                // Trigger change para mostrar especialidades si aplica
-                document.getElementById('profileCategoria').dispatchEvent(new Event('change'));
+            // Llenar campos básicos del formulario (solo si no es usuario dual, porque ya se llenaron con cliente)
+            if (!currentUser.esUsuarioDual) {
+                if (document.getElementById('profileNombre')) {
+                    document.getElementById('profileNombre').value = tasker.nombre || '';
+                }
+                if (document.getElementById('profileApellido')) {
+                    document.getElementById('profileApellido').value = tasker.apellido || '';
+                }
+                if (document.getElementById('profileTelefono')) {
+                    document.getElementById('profileTelefono').value = tasker.telefono || '';
+                }
+            }
+
+            // Llenar campos específicos del tasker (para perfil unificado y perfil de tasker)
+            // Perfil unificado usa profileCategoriaPrincipal, perfil de tasker usa profileCategoria
+            const categoriaSelect = document.getElementById('profileCategoriaPrincipal') || document.getElementById('profileCategoria');
+            if (categoriaSelect) {
+                categoriaSelect.value = tasker.categoria_principal || '';
+                // Trigger change para actualizar especialidades
+                categoriaSelect.dispatchEvent(new Event('change'));
+            }
+            
+            // Llenar especialidades (para perfil unificado)
+            const especialidadesSelect = document.getElementById('profileEspecialidades');
+            if (especialidadesSelect && tasker.especialidades && tasker.especialidades.length > 0) {
+                // Las especialidades ya se cargaron con updateProfileEspecialidades, solo marcar las seleccionadas
+                Array.from(especialidadesSelect.options).forEach(option => {
+                    if (tasker.especialidades.includes(option.text)) {
+                        option.selected = true;
+                    }
+                });
+            }
+            
+            // Llenar otros campos del tasker
+            if (document.getElementById('profileCuit')) {
+                document.getElementById('profileCuit').value = tasker.cuit || '';
+            }
+            if (document.getElementById('profileMonotributista')) {
+                document.getElementById('profileMonotributista').checked = tasker.monotributista_check || false;
+            }
+            if (document.getElementById('profileDescripcion')) {
+                document.getElementById('profileDescripcion').value = tasker.descripcion_profesional || '';
             }
             if (document.getElementById('profileSkills')) {
                 document.getElementById('profileSkills').value = (tasker.skills || []).join(', ');
             }
             if (document.getElementById('profileLicencias')) {
                 document.getElementById('profileLicencias').value = (tasker.licencias || []).join(', ');
-            }
-            if (document.getElementById('profileDescripcion')) {
-                document.getElementById('profileDescripcion').value = tasker.descripcion_profesional || '';
             }
             if (document.getElementById('profileCVUCBU')) {
                 document.getElementById('profileCVUCBU').value = tasker.cvu_cbu || '';
@@ -4765,17 +6104,155 @@ async function loadTaskerProfileForEdit() {
                 document.getElementById('profileDisponible').checked = tasker.disponible !== false;
             }
 
-            // Marcar especialidades seleccionadas
+            // Marcar especialidades seleccionadas (para perfil de tasker con checkboxes)
             if (tasker.especialidades && tasker.especialidades.length > 0) {
                 tasker.especialidades.forEach(esp => {
                     const checkbox = document.querySelector(`input[value="${esp}"]`);
                     if (checkbox) checkbox.checked = true;
                 });
             }
+
+            // Actualizar tarjetas de información guardada
+            updateProfileInfoCards(tasker);
         }
     } catch (error) {
         console.error('Error cargando perfil del tasker:', error);
     }
+}
+
+// Función para actualizar las tarjetas de información guardada
+function updateProfileInfoCards(tasker) {
+    const cardsContainer = document.getElementById('profileInfoCards');
+    if (!cardsContainer) return;
+
+    let cardsHTML = '';
+
+    // Tarjeta de Categoría y Especialidades
+    if (tasker.categoria_principal || (tasker.especialidades && tasker.especialidades.length > 0)) {
+        const categoriaNombre = categoriasDisponibles?.find(c => c.id === tasker.categoria_principal)?.nombre || tasker.categoria_principal;
+        cardsHTML += `
+            <div class="info-card info-card-primary">
+                <div class="info-card-header">
+                    <span class="info-card-icon">🏷️</span>
+                    <h4>Categoría y Especialidades</h4>
+                </div>
+                <div class="info-card-content">
+                    ${tasker.categoria_principal ? `
+                        <div class="info-item">
+                            <span class="info-label">Categoría Principal:</span>
+                            <span class="info-value">${categoriaNombre}</span>
+                        </div>
+                    ` : ''}
+                    ${tasker.especialidades && tasker.especialidades.length > 0 ? `
+                        <div class="info-item">
+                            <span class="info-label">Especialidades:</span>
+                            <div class="info-tags">
+                                ${tasker.especialidades.map(esp => `<span class="info-tag">${esp}</span>`).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    // Tarjeta de Descripción Profesional
+    if (tasker.descripcion_profesional) {
+        cardsHTML += `
+            <div class="info-card info-card-secondary">
+                <div class="info-card-header">
+                    <span class="info-card-icon">📄</span>
+                    <h4>Descripción Profesional</h4>
+                </div>
+                <div class="info-card-content">
+                    <p class="info-description">${tasker.descripcion_profesional}</p>
+                </div>
+            </div>
+        `;
+    }
+
+    // Tarjeta de Información Fiscal
+    if (tasker.cuit || tasker.monotributista_check) {
+        cardsHTML += `
+            <div class="info-card info-card-tertiary">
+                <div class="info-card-header">
+                    <span class="info-card-icon">💼</span>
+                    <h4>Información Fiscal</h4>
+                </div>
+                <div class="info-card-content">
+                    ${tasker.cuit ? `
+                        <div class="info-item">
+                            <span class="info-label">CUIT:</span>
+                            <span class="info-value">${tasker.cuit}</span>
+                        </div>
+                    ` : ''}
+                    ${tasker.monotributista_check ? `
+                        <div class="info-item">
+                            <span class="info-badge-fiscal">✅ Monotributista</span>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    // Tarjeta de Skills y Licencias
+    if ((tasker.skills && tasker.skills.length > 0) || (tasker.licencias && tasker.licencias.length > 0)) {
+        cardsHTML += `
+            <div class="info-card info-card-quaternary">
+                <div class="info-card-header">
+                    <span class="info-card-icon">🎯</span>
+                    <h4>Habilidades y Certificaciones</h4>
+                </div>
+                <div class="info-card-content">
+                    ${tasker.skills && tasker.skills.length > 0 ? `
+                        <div class="info-item">
+                            <span class="info-label">Skills:</span>
+                            <div class="info-tags">
+                                ${tasker.skills.map(skill => `<span class="info-tag info-tag-skill">${skill}</span>`).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${tasker.licencias && tasker.licencias.length > 0 ? `
+                        <div class="info-item">
+                            <span class="info-label">Licencias:</span>
+                            <div class="info-tags">
+                                ${tasker.licencias.map(lic => `<span class="info-tag info-tag-license">${lic}</span>`).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    // Si no hay información, mostrar mensaje
+    if (!cardsHTML) {
+        cardsHTML = `
+            <div class="info-card info-card-empty">
+                <div class="info-card-content">
+                    <p style="text-align: center; color: #94a3b8; padding: 20px;">
+                        📝 Completa tu perfil de Tasker para que aparezca aquí
+                    </p>
+                </div>
+            </div>
+        `;
+    }
+
+    cardsContainer.innerHTML = cardsHTML;
+}
+
+// Función para toggle del formulario de edición
+function toggleProfileEdit() {
+    const form = document.getElementById('profileForm');
+    const toggleBtn = document.getElementById('toggleEditBtn');
+    if (!form || !toggleBtn) return;
+
+    const isVisible = form.style.display !== 'none';
+    form.style.display = isVisible ? 'none' : 'block';
+    toggleBtn.innerHTML = isVisible 
+        ? '<span class="edit-icon">✏️</span><span>Editar Perfil</span>'
+        : '<span class="edit-icon">👁️</span><span>Ver Perfil</span>';
 }
 
 // Función para manejar actualización de perfil
@@ -4783,66 +6260,179 @@ async function handleProfileUpdate(e) {
     e.preventDefault();
 
     try {
-        const userType = currentUser.tipo;
-        let updateData = {};
+        const esUsuarioDual = currentUser.esUsuarioDual || false;
+        let updateDataCliente = {};
+        let updateDataTasker = {};
+        let promises = [];
 
-        if (userType === 'cliente') {
-            updateData = {
-                nombre: document.getElementById('profileNombre').value,
-                apellido: document.getElementById('profileApellido').value,
-                telefono: document.getElementById('profileTelefono').value,
-                ubicacion_default: document.getElementById('profileUbicacion').value || null
+        // Datos comunes (nombre, apellido, telefono)
+        const nombre = document.getElementById('profileNombre').value;
+        const apellido = document.getElementById('profileApellido').value;
+        const telefono = document.getElementById('profileTelefono').value;
+
+        if (esUsuarioDual) {
+            // Usuario dual: actualizar ambos perfiles
+            // Datos del cliente
+            updateDataCliente = {
+                nombre: nombre,
+                apellido: apellido,
+                telefono: telefono,
+                ubicacion_default: document.getElementById('profileUbicacion')?.value || null
             };
-        } else if (userType === 'tasker') {
-            // Obtener especialidades seleccionadas
+
+            // Datos del tasker
+            const categoriaPrincipal = document.getElementById('profileCategoriaPrincipal')?.value || null;
+            const especialidadesSelect = document.getElementById('profileEspecialidades');
+            // Obtener los nombres de las especialidades (no los IDs)
+            const especialidades = especialidadesSelect ? Array.from(especialidadesSelect.selectedOptions).map(opt => opt.text) : [];
+
+            updateDataTasker = {
+                nombre: nombre,
+                apellido: apellido,
+                telefono: telefono,
+                categoria_principal: categoriaPrincipal,
+                especialidades: especialidades,
+                cuit: document.getElementById('profileCuit')?.value || null,
+                monotributista_check: document.getElementById('profileMonotributista')?.checked || false,
+                descripcion_profesional: document.getElementById('profileDescripcion')?.value || null
+            };
+
+            // Actualizar ambos perfiles en paralelo
+            const clienteId = currentUser.cliente_id || currentUser.id;
+            const taskerId = currentUser.tasker_id;
+
+            promises.push(
+                fetch(`${API_BASE}/cliente/profile/${clienteId}`, {
+                    method: 'PUT',
+                    headers: getAuthHeaders({
+                        'Content-Type': 'application/json'
+                    }, 'cliente'), // Forzar modo cliente para actualizar perfil de cliente
+                    body: JSON.stringify(updateDataCliente)
+                })
+            );
+
+            promises.push(
+                fetch(`${API_BASE}/tasker/profile/${taskerId}`, {
+                    method: 'PUT',
+                    headers: getAuthHeaders({
+                        'Content-Type': 'application/json'
+                    }, 'tasker'), // Forzar modo tasker para actualizar perfil de tasker
+                    body: JSON.stringify(updateDataTasker)
+                })
+            );
+
+            const responses = await Promise.all(promises);
+            const dataCliente = await responses[0].json();
+            const dataTasker = await responses[1].json();
+
+            if (responses[0].ok && responses[1].ok) {
+                showMessage('✅ Perfil actualizado exitosamente', 'success');
+                // Actualizar currentUser con los nuevos datos
+                if (dataCliente.cliente) {
+                    Object.assign(currentUser, {
+                        nombre: dataCliente.cliente.nombre,
+                        apellido: dataCliente.cliente.apellido,
+                        telefono: dataCliente.cliente.telefono,
+                        ubicacion_default: dataCliente.cliente.ubicacion_default
+                    });
+                }
+                if (dataTasker.tasker) {
+                    Object.assign(currentUser, {
+                        categoria_principal: dataTasker.tasker.categoria_principal,
+                        especialidades: dataTasker.tasker.especialidades,
+                        cuit: dataTasker.tasker.cuit,
+                        monotributista_check: dataTasker.tasker.monotributista_check,
+                        descripcion_profesional: dataTasker.tasker.descripcion_profesional,
+                        disponible_tasker: dataTasker.tasker.disponible
+                    });
+                    // Actualizar tarjetas de información después de guardar
+                    updateProfileInfoCards(dataTasker.tasker);
+                }
+                updateAvailabilityButton();
+            } else {
+                const errorMsg = dataCliente.message || dataTasker.message || 'Error al actualizar perfil';
+                showMessage(`❌ Error: ${errorMsg}`, 'error');
+            }
+        } else if (currentUser.tipo === 'cliente') {
+            // Cliente puro
+            updateDataCliente = {
+                nombre: nombre,
+                apellido: apellido,
+                telefono: telefono,
+                ubicacion_default: document.getElementById('profileUbicacion')?.value || null
+            };
+
+            const response = await fetch(`${API_BASE}/cliente/profile/${currentUser.id}`, {
+                method: 'PUT',
+                headers: getAuthHeaders({
+                    'Content-Type': 'application/json'
+                }, 'cliente'), // Forzar modo cliente
+                body: JSON.stringify(updateDataCliente)
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                showMessage('✅ Perfil actualizado exitosamente', 'success');
+                if (data.cliente) {
+                    Object.assign(currentUser, data.cliente);
+                }
+            } else {
+                showMessage(`❌ Error: ${data.message || 'Error al actualizar perfil'}`, 'error');
+            }
+        } else if (isTasker()) {
+            // Tasker puro
             const especialidades = Array.from(document.querySelectorAll('#especialidadesGroup input[type="checkbox"]:checked'))
                 .map(cb => cb.value);
 
-            // Obtener skills y licencias (separar por comas)
-            const skillsText = document.getElementById('profileSkills').value;
-            const licenciasText = document.getElementById('profileLicencias').value;
+            const skillsText = document.getElementById('profileSkills')?.value;
+            const licenciasText = document.getElementById('profileLicencias')?.value;
 
-            updateData = {
-                nombre: document.getElementById('profileNombre').value,
-                apellido: document.getElementById('profileApellido').value,
-                telefono: document.getElementById('profileTelefono').value,
-                categoria_principal: document.getElementById('profileCategoria').value || null,
+            updateDataTasker = {
+                nombre: nombre,
+                apellido: apellido,
+                telefono: telefono,
+                categoria_principal: document.getElementById('profileCategoria')?.value || null,
                 especialidades: especialidades,
                 skills: skillsText ? skillsText.split(',').map(s => s.trim()).filter(s => s) : [],
                 licencias: licenciasText ? licenciasText.split(',').map(l => l.trim()).filter(l => l) : [],
-                descripcion_profesional: document.getElementById('profileDescripcion').value || null,
-                cvu_cbu: document.getElementById('profileCVUCBU').value || null,
-                disponible: document.getElementById('profileDisponible').checked
+                descripcion_profesional: document.getElementById('profileDescripcion')?.value || null,
+                cvu_cbu: document.getElementById('profileCVUCBU')?.value || null,
+                disponible: document.getElementById('profileDisponible')?.checked || false
             };
-        }
 
-        const endpoint = userType === 'cliente' 
-            ? `${API_BASE}/cliente/profile/${currentUser.id}`
-            : `${API_BASE}/tasker/profile/${currentUser.id}`;
+            const response = await fetch(`${API_BASE}/tasker/profile/${currentUser.id}`, {
+                method: 'PUT',
+                headers: getAuthHeaders({
+                    'Content-Type': 'application/json'
+                }, 'tasker'), // Forzar modo tasker
+                body: JSON.stringify(updateDataTasker)
+            });
 
-        const response = await fetch(endpoint, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentToken}`
-            },
-            body: JSON.stringify(updateData)
-        });
+            const data = await response.json();
 
-        const data = await response.json();
-
-        if (response.ok) {
-            showMessage('✅ Perfil actualizado exitosamente', 'success');
-            // Actualizar currentUser con los nuevos datos
-            if (userType === 'cliente') {
-                Object.assign(currentUser, data.cliente);
-            } else {
-                Object.assign(currentUser, data.tasker);
-                // Actualizar botón de disponibilidad si es tasker
+            if (response.ok) {
+                showMessage('✅ Perfil actualizado exitosamente', 'success');
+                if (data.tasker) {
+                    Object.assign(currentUser, {
+                        nombre: data.tasker.nombre,
+                        apellido: data.tasker.apellido,
+                        telefono: data.tasker.telefono,
+                        categoria_principal: data.tasker.categoria_principal,
+                        especialidades: data.tasker.especialidades,
+                        skills: data.tasker.skills,
+                        licencias: data.tasker.licencias,
+                        descripcion_profesional: data.tasker.descripcion_profesional,
+                        cvu_cbu: data.tasker.cvu_cbu,
+                        disponible: data.tasker.disponible
+                    });
+                    // Actualizar tarjetas de información después de guardar
+                    updateProfileInfoCards(data.tasker);
+                }
                 updateAvailabilityButton();
+            } else {
+                showMessage(`❌ Error: ${data.message || 'Error al actualizar perfil'}`, 'error');
             }
-        } else {
-            showMessage(`❌ Error: ${data.message || 'Error al actualizar perfil'}`, 'error');
         }
     } catch (error) {
         console.error('Error actualizando perfil:', error);
@@ -4857,11 +6447,13 @@ function showSearchContent() {
     const searchContent = document.getElementById('searchContent');
     if (!searchContent) return;
 
-    const userType = currentUser.tipo;
+    // Para usuarios duales, usar el modo activo; para otros, usar el tipo
+    const userType = getUserType();
+    const isInClienteMode = isCliente() || (currentUser.esUsuarioDual && taskerMode === 'cliente');
     let searchHTML = '';
 
-    if (userType === 'cliente') {
-        // Cliente busca taskers
+    if (isInClienteMode) {
+        // Cliente (o usuario dual en modo cliente) busca taskers
         searchHTML = `
             <div class="search-container">
                 <h2>🔍 Buscar Taskers</h2>
@@ -4914,7 +6506,7 @@ function showSearchContent() {
                 </div>
             </div>
         `;
-    } else if (userType === 'tasker') {
+    } else if (isTasker()) {
         // Tasker busca clientes
         searchHTML = `
             <div class="search-container">
@@ -5245,15 +6837,13 @@ function clearClienteFilters() {
 async function viewTaskerProfile(taskerId) {
     try {
         const response = await fetch(`${API_BASE}/tasker/profile/${taskerId}`, {
-            headers: {
-                'Authorization': `Bearer ${currentToken}`
-            }
+            headers: getAuthHeaders()
         });
 
         const data = await response.json();
         if (response.ok && data.tasker) {
             const tasker = data.tasker;
-            const isCliente = currentUser.tipo === 'cliente';
+            const esCliente = isCliente(); // Usar la función helper
             
             const modalHTML = `
                 <div class="modal-overlay" onclick="closeProfileModal()">
@@ -5273,7 +6863,7 @@ async function viewTaskerProfile(taskerId) {
                                 `<p><strong>Descripción:</strong> ${tasker.descripcion_profesional}</p>` : ''}
                             <p><strong>Estado:</strong> ${tasker.disponible ? '✅ Disponible' : '❌ No disponible'}</p>
                         </div>
-                        ${isCliente ? `
+                        ${esCliente ? `
                             <div id="taskerTasks-${taskerId}" class="tasks-to-rate-section">
                                 <h3>📋 Tareas Completadas</h3>
                                 <p>Cargando tareas...</p>
@@ -5288,7 +6878,7 @@ async function viewTaskerProfile(taskerId) {
             document.body.insertAdjacentHTML('beforeend', modalHTML);
             
             // Si es cliente, cargar tareas completadas con este tasker
-            if (isCliente) {
+            if (esCliente) {
                 loadCompletedTasksWithUser(taskerId, 'tasker', `taskerTasks-${taskerId}`);
             }
             
@@ -5305,15 +6895,13 @@ async function viewTaskerProfile(taskerId) {
 async function viewClienteProfile(clienteId) {
     try {
         const response = await fetch(`${API_BASE}/cliente/profile/${clienteId}`, {
-            headers: {
-                'Authorization': `Bearer ${currentToken}`
-            }
+            headers: getAuthHeaders()
         });
 
         const data = await response.json();
         if (response.ok && data.cliente) {
             const cliente = data.cliente;
-            const isTasker = currentUser.tipo === 'tasker';
+            const esTaskerUser = isTasker();
             
             const modalHTML = `
                 <div class="modal-overlay" onclick="closeProfileModal()">
@@ -5325,7 +6913,7 @@ async function viewClienteProfile(clienteId) {
                             ${cliente.ubicacion_default ? 
                                 `<p><strong>📍 Ubicación:</strong> ${cliente.ubicacion_default}</p>` : ''}
                         </div>
-                        ${isTasker ? `
+                        ${esTaskerUser ? `
                             <div id="clienteTasks-${clienteId}" class="tasks-to-rate-section">
                                 <h3>📋 Tareas Completadas</h3>
                                 <p>Cargando tareas...</p>
@@ -5340,7 +6928,7 @@ async function viewClienteProfile(clienteId) {
             document.body.insertAdjacentHTML('beforeend', modalHTML);
             
             // Si es tasker, cargar tareas completadas con este cliente
-            if (isTasker) {
+            if (esTaskerUser) {
                 loadCompletedTasksWithUser(clienteId, 'cliente', `clienteTasks-${clienteId}`);
             }
             
@@ -5357,6 +6945,20 @@ async function viewClienteProfile(clienteId) {
 function closeProfileModal() {
     const modal = document.querySelector('.modal-overlay');
     if (modal) modal.remove();
+}
+
+// Función para cambiar el modo del tasker
+function setTaskerMode(mode) {
+    if (currentUser && isTasker()) {
+        taskerMode = mode;
+        showTasksContent(); // Recargar el contenido con el nuevo modo
+        showMessage(`✅ Modo cambiado a: ${mode === 'tasker' ? 'Tasker' : 'Cliente'}`, 'success');
+    }
+}
+
+// Función para cambiar a modo Tasker (desde modo Cliente) - alias
+function switchToTaskerMode() {
+    setTaskerMode('tasker');
 }
 
 // Función para ver detalles completos de un usuario desde el admin
@@ -6194,11 +7796,9 @@ async function loadCompletedTasksWithUser(userId, userType, containerId) {
         if (!container) return;
 
         // Si el usuario actual es tasker viendo perfil de cliente, obtener tareas del tasker
-        if (currentUser.tipo === 'tasker' && userType === 'cliente') {
+        if (isTasker() && userType === 'cliente') {
             const response = await fetch(`${API_BASE}/task/my-assigned-tasks`, {
-                headers: {
-                    'Authorization': `Bearer ${currentToken}`
-                }
+                headers: getAuthHeaders()
             });
 
             const data = await response.json();
@@ -6238,11 +7838,9 @@ async function loadCompletedTasksWithUser(userId, userType, containerId) {
             }
         } else {
             // Si es cliente viendo perfil de tasker, obtener tareas del cliente
-            if (currentUser.tipo === 'cliente' && userType === 'tasker') {
+            if (isCliente() && userType === 'tasker') {
                 const response = await fetch(`${API_BASE}/task/my-tasks`, {
-                    headers: {
-                        'Authorization': `Bearer ${currentToken}`
-                    }
+                    headers: getAuthHeaders()
                 });
 
                 const data = await response.json();
@@ -6297,13 +7895,8 @@ async function loadCompletedTasksWithUser(userId, userType, containerId) {
 async function loadUserRatings(userId, userType, containerId) {
     try {
         // El endpoint de calificaciones es público, pero si hay token lo enviamos
-        const headers = {};
-        if (currentToken) {
-            headers['Authorization'] = `Bearer ${currentToken}`;
-        }
-
         const response = await fetch(`${API_BASE}/rating/user/${userId}?tipo=${userType}`, {
-            headers: headers
+            headers: getAuthHeaders()
         });
 
         const data = await response.json();
@@ -6387,6 +7980,711 @@ function toggleRatingsDetails(containerId) {
         }
     }
 }
+
+// ==================== GESTIÓN DE CATEGORÍAS (ADMIN) ====================
+
+// Función para cargar categorías en el panel admin
+async function loadAdminCategorias() {
+    try {
+        const response = await fetch(`${API_BASE}/admin/categorias?incluir_inactivas=true`, {
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('Error al cargar categorías');
+        }
+
+        const data = await response.json();
+        const categorias = data.categorias || [];
+
+        const container = document.getElementById('adminCategoriasList');
+        if (!container) return;
+
+        if (categorias.length === 0) {
+            container.innerHTML = '<p class="no-data">No hay categorías configuradas</p>';
+            return;
+        }
+
+        let html = '<div class="categorias-grid">';
+        categorias.forEach(categoria => {
+            html += `
+                <div class="categoria-card ${!categoria.activa ? 'inactiva' : ''}">
+                    <div class="categoria-header">
+                        <div class="categoria-icon">${categoria.icono || '🔧'}</div>
+                        <div class="categoria-info">
+                            <h4>${categoria.nombre}</h4>
+                            <p>${categoria.descripcion || 'Sin descripción'}</p>
+                        </div>
+                        <div class="categoria-status">
+                            <span class="status-badge ${categoria.activa ? 'activa' : 'inactiva'}">
+                                ${categoria.activa ? '✓ Activa' : '✗ Inactiva'}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="categoria-details">
+                        <div class="detail-item">
+                            <strong>ID:</strong> ${categoria.id}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Tiempo estimado:</strong> ${categoria.tiempo_estimado || 'N/A'}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Requiere matrícula:</strong> ${categoria.requiere_matricula ? 'Sí' : 'No'}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Requiere título:</strong> ${categoria.requiere_titulo ? 'Sí' : 'No'}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Orden:</strong> ${categoria.orden || 'N/A'}
+                        </div>
+                        <div class="detail-item">
+                            <strong>Subcategorías:</strong> ${categoria.subcategorias ? categoria.subcategorias.length : 0}
+                        </div>
+                    </div>
+                    ${categoria.subcategorias && categoria.subcategorias.length > 0 ? `
+                        <div class="subcategorias-list">
+                            <strong>Subcategorías:</strong>
+                            <ul>
+                                ${categoria.subcategorias.map(sub => `<li>${sub.nombre}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                    <div class="categoria-actions">
+                        <button class="btn-edit" onclick="showEditCategoriaModal('${categoria.id}')">
+                            ✏️ Editar
+                        </button>
+                        ${categoria.activa ? `
+                            <button class="btn-delete" onclick="deleteCategoria('${categoria.id}')">
+                                🗑️ Desactivar
+                            </button>
+                        ` : `
+                            <button class="btn-restore" onclick="restoreCategoria('${categoria.id}')">
+                                ♻️ Activar
+                            </button>
+                        `}
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        container.innerHTML = html;
+    } catch (error) {
+        console.error('Error al cargar categorías:', error);
+        showMessage('❌ Error al cargar categorías: ' + error.message, 'error');
+    }
+}
+
+// Función para mostrar modal de creación/edición de categoría
+function showCreateCategoriaModal(categoriaId = null) {
+    // Por ahora, mostrar un alert simple. Se puede mejorar con un modal más elaborado
+    const accion = categoriaId ? 'editar' : 'crear';
+    alert(`Funcionalidad de ${accion} categoría. Se implementará un modal completo próximamente.`);
+    // TODO: Implementar modal completo con formulario
+}
+
+function showEditCategoriaModal(categoriaId) {
+    showCreateCategoriaModal(categoriaId);
+}
+
+// Función para eliminar (desactivar) una categoría
+async function deleteCategoria(categoriaId) {
+    if (!confirm(`¿Estás seguro de que deseas desactivar la categoría "${categoriaId}"?`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/admin/categorias/${categoriaId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            }
+        });
+
+        if (response.ok) {
+            showMessage('✅ Categoría desactivada exitosamente', 'success');
+            loadAdminCategorias();
+        } else {
+            const data = await response.json();
+            throw new Error(data.message || 'Error al desactivar categoría');
+        }
+    } catch (error) {
+        console.error('Error al desactivar categoría:', error);
+        showMessage('❌ Error al desactivar categoría: ' + error.message, 'error');
+    }
+}
+
+// Función para restaurar (activar) una categoría
+async function restoreCategoria(categoriaId) {
+    try {
+        const response = await fetch(`${API_BASE}/admin/categorias/${categoriaId}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ activa: true })
+        });
+
+        if (response.ok) {
+            showMessage('✅ Categoría activada exitosamente', 'success');
+            loadAdminCategorias();
+        } else {
+            const data = await response.json();
+            throw new Error(data.message || 'Error al activar categoría');
+        }
+    } catch (error) {
+        console.error('Error al activar categoría:', error);
+        showMessage('❌ Error al activar categoría: ' + error.message, 'error');
+    }
+}
+
+// Función para mostrar modal de registro como tasker (desde perfil de cliente)
+function showBecomeTaskerModal() {
+    const modalHTML = `
+        <div class="modal-overlay" id="becomeTaskerModal" onclick="closeBecomeTaskerModal(event)">
+            <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 600px; max-height: 90vh; overflow-y: auto;">
+                <button class="modal-close" onclick="closeBecomeTaskerModal(event)">×</button>
+                <h2>🔧 Registrarse como Tasker</h2>
+                <p style="color: #64748b; margin-bottom: 20px;">
+                    Completa tu información como Tasker. Podrás seguir usando la app como Cliente.
+                </p>
+                
+                <form id="becomeTaskerForm" onsubmit="registerAsTasker(event)">
+                    <div class="form-group">
+                        <label for="becomeTaskerPassword">Confirma tu contraseña *</label>
+                        <input type="password" id="becomeTaskerPassword" placeholder="Ingresa tu contraseña actual" required>
+                        <small>Necesitamos confirmar tu identidad</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="becomeTaskerCategoria">Categoría Principal *</label>
+                        <select id="becomeTaskerCategoria" required onchange="updateBecomeTaskerEspecialidades()">
+                            <option value="" disabled selected>🏷️ Seleccionar categoría</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="becomeTaskerEspecialidad">Especialidad (opcional)</label>
+                        <select id="becomeTaskerEspecialidad">
+                            <option value="" selected>👷 Selecciona primero una categoría</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="becomeTaskerCuit">CUIT (opcional)</label>
+                        <input type="text" id="becomeTaskerCuit" placeholder="XX-XXXXXXXX-X">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="becomeTaskerMonotributista"> Soy monotributista
+                        </label>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Subir documentos (opcional)</label>
+                        <input type="file" id="becomeTaskerDni" accept="image/*,.pdf">
+                        <small>DNI</small>
+                    </div>
+                    <div class="form-group">
+                        <input type="file" id="becomeTaskerMatricula" accept="image/*,.pdf">
+                        <small>Matrícula (si aplica)</small>
+                    </div>
+                    <div class="form-group">
+                        <input type="file" id="becomeTaskerLicencia" accept="image/*,.pdf">
+                        <small>Licencia de conducir (si aplica)</small>
+                    </div>
+                    
+                    <div class="terms-container" style="margin: 20px 0;">
+                        <label class="terms-label">
+                            <input type="checkbox" id="becomeTaskerTerms" required>
+                            <span class="checkmark"></span>
+                            <span>Acepto los <a href="#" onclick="event.preventDefault(); showTermsModal(event)">Términos y Condiciones</a> como Tasker</span>
+                        </label>
+                    </div>
+                    
+                    <button type="submit" class="btn-primary" style="width: 100%;">
+                        🚀 Registrarse como Tasker
+                    </button>
+                </form>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Cargar categorías
+    loadCategoriasForRegistration().then(() => {
+        const categoriaSelect = document.getElementById('becomeTaskerCategoria');
+        if (categoriaSelect) {
+            categoriasDisponibles.forEach(categoria => {
+                if (categoria.activa) {
+                    const option = new Option(`${categoria.icono} ${categoria.nombre}`, categoria.id);
+                    categoriaSelect.add(option);
+                }
+            });
+        }
+    });
+}
+
+function closeBecomeTaskerModal(event) {
+    if (event) event.stopPropagation();
+    const modal = document.getElementById('becomeTaskerModal');
+    if (modal) modal.remove();
+}
+
+function updateBecomeTaskerEspecialidades() {
+    const categoriaSelect = document.getElementById('becomeTaskerCategoria');
+    const especialidadSelect = document.getElementById('becomeTaskerEspecialidad');
+    
+    if (!categoriaSelect || !especialidadSelect) return;
+    
+    const categoriaId = categoriaSelect.value;
+    
+    // Limpiar opciones
+    especialidadSelect.innerHTML = '<option value="" selected>👷 Selecciona primero una categoría</option>';
+    
+    if (!categoriaId) return;
+    
+    const categoria = categoriasDisponibles.find(cat => cat.id === categoriaId);
+    
+    if (categoria && categoria.subcategorias && categoria.subcategorias.length > 0) {
+        categoria.subcategorias.forEach(subcat => {
+            const option = new Option(subcat.nombre, subcat.id);
+            especialidadSelect.add(option);
+        });
+    }
+}
+
+// Función para registrar como tasker desde el perfil de cliente
+async function registerAsTasker(event) {
+    if (event) event.preventDefault();
+    
+    const password = document.getElementById('becomeTaskerPassword').value;
+    const categoriaPrincipal = document.getElementById('becomeTaskerCategoria').value;
+    const especialidad = document.getElementById('becomeTaskerEspecialidad').value;
+    const cuit = document.getElementById('becomeTaskerCuit').value;
+    const monotributista = document.getElementById('becomeTaskerMonotributista').checked;
+    const termsAccepted = document.getElementById('becomeTaskerTerms').checked;
+    
+    if (!termsAccepted) {
+        showMessage('❌ Debes aceptar los Términos y Condiciones', 'error');
+        return;
+    }
+    
+    if (!password) {
+        showMessage('❌ Debes ingresar tu contraseña', 'error');
+        return;
+    }
+    
+    if (!categoriaPrincipal) {
+        showMessage('❌ Debes seleccionar una categoría principal', 'error');
+        return;
+    }
+    
+    const categoria = categoriasDisponibles.find(cat => cat.id === categoriaPrincipal);
+    const especialidades = categoria && categoria.subcategorias && especialidad
+        ? categoria.subcategorias.filter(sub => sub.id === especialidad).map(sub => sub.nombre)
+        : [];
+    
+    const formData = new FormData();
+    formData.append('email', currentUser.email);
+    formData.append('password', password);
+    formData.append('categoria_principal', categoriaPrincipal);
+    if (especialidades.length > 0) {
+        especialidades.forEach(esp => formData.append('especialidades[]', esp));
+    }
+    if (cuit) formData.append('cuit', cuit);
+    formData.append('monotributista_check', monotributista);
+    
+    const dniFile = document.getElementById('becomeTaskerDni').files[0];
+    const matriculaFile = document.getElementById('becomeTaskerMatricula').files[0];
+    const licenciaFile = document.getElementById('becomeTaskerLicencia').files[0];
+    
+    if (dniFile) formData.append('dni', dniFile);
+    if (matriculaFile) formData.append('matricula', matriculaFile);
+    if (licenciaFile) formData.append('licencia', licenciaFile);
+    
+    try {
+        const submitBtn = event.target.querySelector('button[type="submit"]');
+        setLoading(submitBtn, true);
+        
+        const response = await fetch(`${API_BASE}/auth/register/cliente-as-tasker`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`
+            },
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showMessage('✅ Registrado como Tasker exitosamente. Espera la aprobación del administrador.', 'success');
+            closeBecomeTaskerModal();
+            
+            // Recargar el usuario para obtener la información actualizada
+            setTimeout(async () => {
+                try {
+                    const loginResponse = await fetch(`${API_BASE}/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email: currentUser.email,
+                            password: password
+                        })
+                    });
+                    
+                    const loginData = await loginResponse.json();
+                    if (loginResponse.ok) {
+                        currentToken = loginData.token;
+                        currentUser = loginData.usuario;
+                        showProfileContent(); // Recargar perfil
+                    }
+                } catch (error) {
+                    console.error('Error al recargar usuario:', error);
+                }
+            }, 1000);
+        } else {
+            showMessage(`❌ Error: ${data.message || data.error || 'Error al registrarse como tasker'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error al registrarse como tasker:', error);
+        showMessage('❌ Error de conexión: ' + error.message, 'error');
+    } finally {
+        const submitBtn = event.target.querySelector('button[type="submit"]');
+        if (submitBtn) setLoading(submitBtn, false);
+    }
+}
+
+// Función para actualizar especialidades en el perfil unificado
+function updateProfileEspecialidades() {
+    const categoriaSelect = document.getElementById('profileCategoriaPrincipal');
+    const especialidadesSelect = document.getElementById('profileEspecialidades');
+    
+    if (!categoriaSelect || !especialidadesSelect) return;
+    
+    const categoriaId = categoriaSelect.value;
+    
+    // Limpiar opciones
+    especialidadesSelect.innerHTML = '';
+    
+    if (!categoriaId) return;
+    
+    const categoria = categoriasDisponibles.find(cat => cat.id === categoriaId);
+    
+    if (categoria && categoria.subcategorias && categoria.subcategorias.length > 0) {
+        categoria.subcategorias.forEach(subcat => {
+            const option = new Option(subcat.nombre, subcat.id);
+            // Marcar como seleccionada si está en las especialidades del usuario
+            if (currentUser.especialidades && currentUser.especialidades.includes(subcat.nombre)) {
+                option.selected = true;
+            }
+            especialidadesSelect.add(option);
+        });
+    }
+}
+
+// ========== SISTEMA DE CHAT/MENSAJERÍA ==========
+
+// Variables globales para el chat
+let chatPollingInterval = null;
+let currentChatTareaId = null;
+let chatModalOpen = false;
+
+/**
+ * Abrir modal de chat para una tarea
+ * @param {number} tareaId - ID de la tarea
+ */
+async function openChatModal(tareaId) {
+    currentChatTareaId = tareaId;
+    chatModalOpen = true;
+
+    // Crear modal si no existe
+    let chatModal = document.getElementById('chatModal');
+    if (!chatModal) {
+        chatModal = document.createElement('div');
+        chatModal.id = 'chatModal';
+        chatModal.className = 'modal-overlay';
+        chatModal.innerHTML = `
+            <div class="modal-content chat-modal-content" onclick="event.stopPropagation()">
+                <div class="chat-header">
+                    <h2>💬 Chat</h2>
+                    <button class="modal-close" onclick="closeChatModal()" title="Cerrar">×</button>
+                </div>
+                <div class="chat-messages" id="chatMessages">
+                    <div class="chat-loading">Cargando mensajes...</div>
+                </div>
+                <div class="chat-input-container">
+                    <input type="text" id="chatInput" class="chat-input" placeholder="Escribe un mensaje..." maxlength="1000">
+                    <button id="chatSendBtn" class="chat-send-btn" onclick="sendChatMessage()">📤</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(chatModal);
+
+        // Permitir enviar con Enter
+        const chatInput = document.getElementById('chatInput');
+        if (chatInput) {
+            chatInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    sendChatMessage();
+                }
+            });
+        }
+    }
+
+    // Mostrar modal
+    chatModal.style.display = 'flex';
+
+    // Cargar mensajes
+    await loadChatMessages(tareaId);
+
+    // Iniciar polling para nuevos mensajes
+    startChatPolling(tareaId);
+}
+
+/**
+ * Cerrar modal de chat
+ */
+function closeChatModal() {
+    const chatModal = document.getElementById('chatModal');
+    if (chatModal) {
+        chatModal.style.display = 'none';
+    }
+    chatModalOpen = false;
+    currentChatTareaId = null;
+    stopChatPolling();
+}
+
+/**
+ * Cargar mensajes de una tarea
+ * @param {number} tareaId - ID de la tarea
+ */
+async function loadChatMessages(tareaId) {
+    try {
+        const messagesContainer = document.getElementById('chatMessages');
+        if (!messagesContainer) return;
+
+        const response = await fetch(`${API_BASE}/chat/tarea/${tareaId}`, {
+            headers: getAuthHeaders()
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            const mensajes = data.mensajes || [];
+            
+            if (mensajes.length === 0) {
+                messagesContainer.innerHTML = `
+                    <div class="chat-empty">
+                        <p>💬 No hay mensajes aún.</p>
+                        <p>¡Sé el primero en escribir!</p>
+                    </div>
+                `;
+            } else {
+                let messagesHTML = '';
+                const usuarioId = currentUser.tipo === 'cliente' 
+                    ? (currentUser.esUsuarioDual ? currentUser.cliente_id : currentUser.id)
+                    : (currentUser.esUsuarioDual ? currentUser.tasker_id : currentUser.id);
+                const usuarioTipo = currentUser.tipo;
+
+                mensajes.forEach(mensaje => {
+                    const esMio = mensaje.remitente_id === usuarioId && mensaje.remitente_tipo === usuarioTipo;
+                    const fecha = new Date(mensaje.createdAt).toLocaleString('es-ES', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+
+                    messagesHTML += `
+                        <div class="chat-message ${esMio ? 'chat-message-own' : 'chat-message-other'}">
+                            <div class="chat-message-header">
+                                <span class="chat-message-name">${mensaje.remitente_nombre || (mensaje.remitente_tipo === 'cliente' ? 'Cliente' : 'Tasker')}</span>
+                                <span class="chat-message-time">${fecha}</span>
+                            </div>
+                            <div class="chat-message-text">${escapeHtml(mensaje.mensaje)}</div>
+                            ${mensaje.leido && !esMio ? '<span class="chat-message-status read">✓✓</span>' : ''}
+                        </div>
+                    `;
+
+                    // Marcar como leído si no es mío y no está leído
+                    if (!esMio && !mensaje.leido) {
+                        markMessageAsRead(mensaje.id);
+                    }
+                });
+
+                messagesContainer.innerHTML = messagesHTML;
+                scrollChatToBottom();
+            }
+        } else {
+            messagesContainer.innerHTML = `
+                <div class="chat-error">
+                    <p>❌ Error: ${data.message || 'Error al cargar mensajes'}</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error cargando mensajes:', error);
+        const messagesContainer = document.getElementById('chatMessages');
+        if (messagesContainer) {
+            messagesContainer.innerHTML = `
+                <div class="chat-error">
+                    <p>❌ Error de conexión al cargar mensajes</p>
+                </div>
+            `;
+        }
+    }
+}
+
+/**
+ * Enviar mensaje de chat
+ */
+async function sendChatMessage() {
+    const chatInput = document.getElementById('chatInput');
+    const sendBtn = document.getElementById('chatSendBtn');
+    
+    if (!chatInput || !currentChatTareaId) return;
+
+    const mensaje = chatInput.value.trim();
+    if (!mensaje) return;
+
+    // Deshabilitar input y botón mientras se envía
+    chatInput.disabled = true;
+    if (sendBtn) sendBtn.disabled = true;
+
+    try {
+        const response = await fetch(`${API_BASE}/chat/tarea/${currentChatTareaId}`, {
+            method: 'POST',
+            headers: getAuthHeaders({
+                'Content-Type': 'application/json'
+            }),
+            body: JSON.stringify({ mensaje })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            // Limpiar input
+            chatInput.value = '';
+            
+            // Recargar mensajes para mostrar el nuevo
+            await loadChatMessages(currentChatTareaId);
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al enviar mensaje'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error enviando mensaje:', error);
+        showMessage('❌ Error de conexión al enviar mensaje', 'error');
+    } finally {
+        // Rehabilitar input y botón
+        chatInput.disabled = false;
+        if (sendBtn) sendBtn.disabled = false;
+        chatInput.focus();
+    }
+}
+
+/**
+ * Marcar mensaje como leído
+ * @param {number} mensajeId - ID del mensaje
+ */
+async function markMessageAsRead(mensajeId) {
+    try {
+        await fetch(`${API_BASE}/chat/mensaje/${mensajeId}/leido`, {
+            method: 'PUT',
+            headers: getAuthHeaders()
+        });
+    } catch (error) {
+        console.error('Error marcando mensaje como leído:', error);
+    }
+}
+
+/**
+ * Iniciar polling para nuevos mensajes
+ * @param {number} tareaId - ID de la tarea
+ */
+function startChatPolling(tareaId) {
+    // Limpiar intervalo anterior si existe
+    stopChatPolling();
+
+    // Polling cada 3 segundos
+    chatPollingInterval = setInterval(async () => {
+        if (chatModalOpen && currentChatTareaId === tareaId) {
+            await loadChatMessages(tareaId);
+        }
+    }, 3000);
+}
+
+/**
+ * Detener polling de mensajes
+ */
+function stopChatPolling() {
+    if (chatPollingInterval) {
+        clearInterval(chatPollingInterval);
+        chatPollingInterval = null;
+    }
+}
+
+/**
+ * Scroll al final del chat
+ */
+function scrollChatToBottom() {
+    const messagesContainer = document.getElementById('chatMessages');
+    if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+}
+
+/**
+ * Función helper para escapar HTML
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+/**
+ * Cargar contadores de mensajes no leídos para todas las tareas
+ */
+async function loadUnreadMessageCounts() {
+    try {
+        if (!currentToken || !currentUser) return;
+
+        const response = await fetch(`${API_BASE}/chat/tareas-con-mensajes`, {
+            headers: getAuthHeaders()
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.tareas) {
+            data.tareas.forEach(tareaInfo => {
+                const badge = document.getElementById(`chat-badge-${tareaInfo.tarea_id}`);
+                if (badge) {
+                    if (tareaInfo.mensajes_no_leidos > 0) {
+                        badge.textContent = tareaInfo.mensajes_no_leidos;
+                        badge.style.display = 'inline-block';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error cargando contadores de mensajes:', error);
+    }
+}
+
+// Cargar contadores de mensajes no leídos periódicamente (cada 10 segundos)
+setInterval(() => {
+    if (currentUser && currentToken) {
+        loadUnreadMessageCounts();
+    }
+}, 10000);
 
 // Probar conexión al cargar la página
 testConnection();
