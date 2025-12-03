@@ -228,7 +228,21 @@ const markAsRead = async (req, res) => {
     }
 
     // Solo se puede marcar como leído si no es el remitente
-    if (mensaje.remitente_id === usuarioId) {
+    // Para usuarios duales, verificar ambos IDs posibles
+    let esRemitente = false;
+    if (req.user.esUsuarioDual) {
+      if (mensaje.remitente_tipo === 'cliente') {
+        esRemitente = mensaje.remitente_id === req.user.cliente_id || 
+                      (req.user.id === mensaje.remitente_id && req.user.tipo === 'cliente');
+      } else if (mensaje.remitente_tipo === 'tasker') {
+        esRemitente = mensaje.remitente_id === req.user.tasker_id || 
+                      (req.user.id === mensaje.remitente_id && req.user.tipo === 'tasker');
+      }
+    } else {
+      esRemitente = mensaje.remitente_id === usuarioId;
+    }
+    
+    if (esRemitente) {
       return res.status(400).json({
         error: 'Operación inválida',
         message: 'No puedes marcar tus propios mensajes como leídos'
@@ -244,10 +258,58 @@ const markAsRead = async (req, res) => {
       });
     }
 
-    const esCliente = req.user.tipo === 'cliente' && tarea.cliente_id === usuarioId;
-    const esTasker = req.user.tipo === 'tasker' && tarea.tasker_id === usuarioId;
+    // Verificar acceso: el usuario debe ser cliente o tasker de la tarea
+    let tieneAcceso = false;
+    
+    if (req.user.esUsuarioDual) {
+      // Usuario dual: verificar ambos roles
+      const clienteId = req.user.cliente_id;
+      const taskerId = req.user.tasker_id;
+      
+      // Verificar si es cliente de la tarea
+      const esCliente = tarea.cliente_id === clienteId;
+      
+      // Verificar si es tasker asignado
+      const esTaskerAsignado = tarea.tasker_id === taskerId;
+      
+      // Verificar si es tasker aplicante
+      let esTaskerAplicante = false;
+      if (!esTaskerAsignado && tarea.estado === 'PENDIENTE') {
+        const aplicacion = await SolicitudTarea.findOne({
+          where: {
+            tarea_id: mensaje.tarea_id,
+            tasker_id: taskerId,
+            tipo: 'APLICACION'
+          }
+        });
+        esTaskerAplicante = !!aplicacion;
+      }
+      
+      tieneAcceso = esCliente || esTaskerAsignado || esTaskerAplicante;
+    } else {
+      // Usuario normal
+      if (req.user.tipo === 'cliente') {
+        tieneAcceso = tarea.cliente_id === req.user.id;
+      } else if (req.user.tipo === 'tasker') {
+        const esTaskerAsignado = tarea.tasker_id === req.user.id;
+        let esTaskerAplicante = false;
+        
+        if (!esTaskerAsignado && tarea.estado === 'PENDIENTE') {
+          const aplicacion = await SolicitudTarea.findOne({
+            where: {
+              tarea_id: mensaje.tarea_id,
+              tasker_id: req.user.id,
+              tipo: 'APLICACION'
+            }
+          });
+          esTaskerAplicante = !!aplicacion;
+        }
+        
+        tieneAcceso = esTaskerAsignado || esTaskerAplicante;
+      }
+    }
 
-    if (!esCliente && !esTasker) {
+    if (!tieneAcceso) {
       return res.status(403).json({
         error: 'Acceso denegado',
         message: 'No tienes permiso para marcar este mensaje como leído'
@@ -291,7 +353,7 @@ const getTasksWithUnreadMessages = async (req, res) => {
       });
     }
 
-    // Obtener todas las tareas del usuario
+    // Obtener todas las tareas del usuario Y tareas donde tiene mensajes
     let tareas;
     if (usuarioTipo === 'cliente') {
       tareas = await Tarea.findAll({
@@ -317,18 +379,39 @@ const getTasksWithUnreadMessages = async (req, res) => {
       );
     }
 
-    // Para cada tarea, contar mensajes no leídos
+    // También buscar tareas donde el usuario tiene mensajes (incluso si no está asignado)
+    const mensajesDelUsuario = await Mensaje.findAll({
+      where: {
+        remitente_id: usuarioId,
+        remitente_tipo: usuarioTipo
+      }
+    });
+    
+    // Obtener IDs únicos de tareas donde el usuario tiene mensajes
+    const tareasIdsConMensajes = [...new Set(mensajesDelUsuario.map(m => m.tarea_id))];
+    
+    // Obtener esas tareas
+    const tareasConMensajesDelUsuario = await Promise.all(
+      tareasIdsConMensajes.map(id => Tarea.findByPk(id))
+    );
+    
+    // Combinar todas las tareas (eliminar duplicados)
+    const todasLasTareas = [...tareas, ...tareasConMensajesDelUsuario.filter(t => t)];
+    tareas = todasLasTareas.filter((t, i, arr) => 
+      arr.findIndex(ta => ta && ta.id === t.id) === i
+    ).filter(t => t !== null);
+
+    // Para cada tarea, obtener información completa
     const tareasConMensajes = await Promise.all(
       tareas.map(async (tarea) => {
-        const mensajesNoLeidos = await Mensaje.findAll({
-          where: {
-            tarea_id: tarea.id,
-            leido: false
-          }
+        // Obtener todos los mensajes de la tarea
+        const todosMensajes = await Mensaje.findAll({
+          where: { tarea_id: tarea.id },
+          order: [['createdAt', 'DESC']]
         });
 
-        // Filtrar solo los mensajes que NO son del usuario actual
-        const mensajesParaUsuario = mensajesNoLeidos.filter(m => {
+        // Filtrar mensajes no leídos que NO son del usuario actual
+        const mensajesParaUsuario = todosMensajes.filter(m => {
           if (usuarioTipo === 'cliente') {
             return m.remitente_tipo === 'tasker';
           } else {
@@ -336,19 +419,78 @@ const getTasksWithUnreadMessages = async (req, res) => {
           }
         });
 
+        const mensajesNoLeidos = mensajesParaUsuario.filter(m => !m.leido);
+        const ultimoMensaje = todosMensajes.length > 0 ? todosMensajes[0] : null;
+
+        // Obtener información del otro usuario
+        let otroUsuarioNombre = 'Usuario';
+        let otroUsuarioTipo = usuarioTipo === 'cliente' ? 'tasker' : 'cliente';
+        let otroUsuarioId = null;
+        let otroUsuarioEmail = null;
+        let otroUsuarioTelefono = null;
+        let otroUsuarioFoto = null;
+
+        if (usuarioTipo === 'cliente') {
+          // El otro usuario es el tasker (asignado o aplicante)
+          if (tarea.tasker_id) {
+            const tasker = await Tasker.findByPk(tarea.tasker_id);
+            if (tasker) {
+              otroUsuarioNombre = `${tasker.nombre} ${tasker.apellido}`.trim();
+              otroUsuarioId = tasker.id;
+              otroUsuarioEmail = tasker.email;
+              otroUsuarioTelefono = tasker.telefono;
+              otroUsuarioFoto = tasker.foto_perfil || null;
+            }
+          } else if (ultimoMensaje && ultimoMensaje.remitente_tipo === 'tasker') {
+            otroUsuarioNombre = ultimoMensaje.remitente_nombre || 'Tasker';
+            otroUsuarioId = ultimoMensaje.remitente_id;
+          }
+        } else {
+          // El otro usuario es el cliente
+          const cliente = await UsuarioCliente.findByPk(tarea.cliente_id);
+          if (cliente) {
+            otroUsuarioNombre = `${cliente.nombre} ${cliente.apellido}`.trim();
+            otroUsuarioId = cliente.id;
+            otroUsuarioEmail = cliente.email;
+            otroUsuarioTelefono = cliente.telefono;
+            otroUsuarioFoto = cliente.foto_perfil || null;
+          } else if (ultimoMensaje && ultimoMensaje.remitente_tipo === 'cliente') {
+            otroUsuarioNombre = ultimoMensaje.remitente_nombre || 'Cliente';
+            otroUsuarioId = ultimoMensaje.remitente_id;
+          }
+        }
+
         return {
           tarea_id: tarea.id,
+          tarea_descripcion: tarea.descripcion ? tarea.descripcion.split(':')[0] : 'Tarea',
           estado: tarea.estado,
-          mensajes_no_leidos: mensajesParaUsuario.length
+          mensajes_no_leidos: mensajesNoLeidos.length,
+          ultimo_mensaje: ultimoMensaje ? ultimoMensaje.mensaje : null,
+          ultimo_mensaje_fecha: ultimoMensaje ? ultimoMensaje.createdAt : null,
+          otro_usuario: {
+            id: otroUsuarioId,
+            nombre: otroUsuarioNombre,
+            tipo: otroUsuarioTipo,
+            email: otroUsuarioEmail,
+            telefono: otroUsuarioTelefono,
+            foto: otroUsuarioFoto
+          }
         };
       })
     );
 
-    // Filtrar solo las que tienen mensajes no leídos
-    const tareasConMensajesNoLeidos = tareasConMensajes.filter(t => t.mensajes_no_leidos > 0);
+    // Filtrar solo las tareas que tienen al menos un mensaje
+    const tareasConMensajesFiltradas = tareasConMensajes.filter(t => t.ultimo_mensaje !== null);
+
+    // Ordenar por fecha del último mensaje (más reciente primero)
+    tareasConMensajesFiltradas.sort((a, b) => {
+      const dateA = a.ultimo_mensaje_fecha ? new Date(a.ultimo_mensaje_fecha) : new Date(0);
+      const dateB = b.ultimo_mensaje_fecha ? new Date(b.ultimo_mensaje_fecha) : new Date(0);
+      return dateB - dateA;
+    });
 
     res.json({
-      tareas: tareasConMensajesNoLeidos
+      tareas: tareasConMensajesFiltradas
     });
   } catch (error) {
     console.error('Error al obtener tareas con mensajes:', error);

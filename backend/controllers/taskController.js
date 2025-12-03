@@ -316,10 +316,17 @@ const getAvailableTasks = async (req, res) => {
       ]
     });
 
+    // Filtrar tareas donde el usuario dual es el cliente (no puede aplicar a sus propias tareas)
+    let tareasFiltradas = tareasDisponibles;
+    if (req.user.esUsuarioDual) {
+      const clienteId = req.user.cliente_id;
+      tareasFiltradas = tareasDisponibles.filter(tarea => tarea.cliente_id !== clienteId);
+    }
+
     // Verificar si el tasker ya aplicó a cada tarea (usar el taskerId ya declarado arriba)
     const SolicitudTarea = require('../models/SolicitudTarea');
     const tareasConAplicacion = await Promise.all(
-      tareasDisponibles.map(async (tarea) => {
+      tareasFiltradas.map(async (tarea) => {
         const aplicacion = await SolicitudTarea.findOne({
           where: {
             tarea_id: tarea.id,
@@ -335,8 +342,9 @@ const getAvailableTasks = async (req, res) => {
       })
     );
 
-    // Información de paginación
-    const totalPaginas = Math.ceil(count / limite);
+    // Información de paginación (ajustar count si se filtraron tareas)
+    const countFiltrado = tareasConAplicacion.length;
+    const totalPaginas = Math.ceil(countFiltrado / limite);
 
     res.json({
       message: 'Tareas disponibles obtenidas exitosamente',
@@ -344,7 +352,7 @@ const getAvailableTasks = async (req, res) => {
       paginacion: {
         paginaActual: pagina,
         totalPaginas: totalPaginas,
-        totalTareas: count,
+        totalTareas: countFiltrado,
         tareasPorPagina: limite,
         tieneSiguiente: pagina < totalPaginas,
         tieneAnterior: pagina > 1
@@ -674,6 +682,89 @@ const acceptApplication = async (req, res) => {
     console.error('Error al aceptar aplicación:', error);
     res.status(500).json({
       error: 'Error al aceptar aplicación',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Cliente rechaza una aplicación
+ * POST /api/task/reject-application/:applicationId
+ * Solo clientes pueden rechazar aplicaciones a sus tareas
+ */
+const rejectApplication = async (req, res) => {
+  try {
+    const applicationId = parseInt(req.params.applicationId);
+
+    // Verificar que el usuario sea un cliente
+    if (req.user.tipo !== 'cliente') {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo los clientes pueden rechazar aplicaciones'
+      });
+    }
+
+    // Obtener la aplicación
+    const SolicitudTarea = require('../models/SolicitudTarea');
+    const aplicacion = await SolicitudTarea.findByPk(applicationId);
+
+    if (!aplicacion) {
+      return res.status(404).json({
+        error: 'Aplicación no encontrada',
+        message: 'La aplicación especificada no existe'
+      });
+    }
+
+    // Verificar que la aplicación es del tipo correcto
+    if (aplicacion.tipo !== 'APLICACION') {
+      return res.status(400).json({
+        error: 'Tipo inválido',
+        message: 'Esta no es una aplicación de tasker'
+      });
+    }
+
+    // Verificar que el cliente es dueño de la tarea
+    const tarea = await Tarea.findByPk(aplicacion.tarea_id);
+    if (!tarea) {
+      return res.status(404).json({
+        error: 'Tarea no encontrada',
+        message: 'La tarea asociada no existe'
+      });
+    }
+
+    // Para usuarios duales, usar cliente_id; para clientes puros, usar id
+    const clienteId = req.user.esUsuarioDual ? req.user.cliente_id : req.user.id;
+    if (tarea.cliente_id !== clienteId) {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'Solo puedes rechazar aplicaciones de tus propias tareas'
+      });
+    }
+
+    // Verificar que la aplicación esté pendiente
+    if (aplicacion.estado !== 'PENDIENTE') {
+      return res.status(400).json({
+        error: 'Aplicación no disponible',
+        message: 'Esta aplicación ya fue procesada'
+      });
+    }
+
+    // Actualizar la aplicación a RECHAZADA
+    await aplicacion.update({
+      estado: 'RECHAZADA'
+    });
+
+    res.json({
+      message: 'Aplicación rechazada exitosamente',
+      aplicacion: {
+        id: aplicacion.id,
+        estado: aplicacion.estado
+      }
+    });
+  } catch (error) {
+    console.error('Error al rechazar aplicación:', error);
+    res.status(500).json({
+      error: 'Error al rechazar aplicación',
       message: error.message
     });
   }
@@ -1140,6 +1231,7 @@ module.exports = {
   applyToTask,
   getTaskApplications,
   acceptApplication,
+  rejectApplication,
   getMyAssignedTasks,
   startTask,
   completeTask,

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ayuda Al Toque - Plataforma de Servicios</title>
-    <link rel="stylesheet" href="styles.css?v=2.13">
+    <link rel="stylesheet" href="styles.css?v=2.30">
 </head>
 <body>
     <div class="container">
@@ -19,6 +19,11 @@
                     <h1>🚀 Ayuda Al Toque</h1>
                 </div>
                 <div class="header-right">
+                    <!-- Botón de Chat (solo cuando está logueado) -->
+                    <button class="header-chat-btn" id="headerChatBtn" onclick="showTabWithContent('chat')" style="display: none;" title="Chat">
+                        <span>💬</span>
+                        <span id="header-chat-badge" class="header-badge" style="display: none;">0</span>
+                    </button>
                     <!-- Botón Demo oculto -->
                     <button class="demo-btn-header" onclick="loadDemoData()" style="display: none !important;">🎯 Demo</button>
                 </div>
@@ -36,6 +41,11 @@
                         <button class="mobile-menu-item" onclick="showTab('dashboard'); toggleMobileMenu();" style="display: none;">
                             <span class="menu-icon">🏠</span>
                             <span>Menú Principal</span>
+                        </button>
+                        <button class="mobile-menu-item" id="mobileChatBtn" onclick="showTabWithContent('chat'); toggleMobileMenu();" style="display: none;">
+                            <span class="menu-icon">💬</span>
+                            <span>Chat</span>
+                            <span id="mobile-chat-badge" class="menu-badge" style="display: none;">0</span>
                         </button>
                         <button class="mobile-menu-item" id="mobileAvailabilityBtn" onclick="toggleAvailability(); toggleMobileMenu();" style="display: none;">
                             <span class="menu-icon">✅</span>
@@ -78,6 +88,11 @@
             <button class="bottom-nav-btn create-btn-nav" onclick="showCreateTaskTab();" id="createTaskBtnNav">
                 <span class="nav-icon">➕</span>
                 <span class="nav-label">Crear</span>
+            </button>
+            <button class="bottom-nav-btn" onclick="showTabWithContent('chat')" data-tab="chat">
+                <span class="nav-icon">💬</span>
+                <span class="nav-label">Chat</span>
+                <span id="chat-nav-badge" class="nav-badge" style="display: none;">0</span>
             </button>
             <button class="bottom-nav-btn" onclick="showTabWithContent('profile')" data-tab="profile">
                 <span class="nav-icon">👤</span>
@@ -261,6 +276,12 @@
             </div>
         </div>
 
+        <div id="chat" class="tab-content">
+            <div id="chatContent">
+                <!-- El contenido se genera dinámicamente -->
+            </div>
+        </div>
+
         <div id="messages" class="messages"></div>
         
         <!-- Overlay para cerrar menú móvil -->
@@ -342,6 +363,6 @@
         </div>
     </div>
 
-    <script src="script.js?v=2.26"></script>
+    <script src="script.js?v=2.27"></script>
 </body>
 </html>

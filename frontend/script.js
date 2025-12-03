@@ -225,6 +225,8 @@ function showTabWithContent(tabName, subtab = null) {
         showProfileContent();
     } else if (tabName === 'search' && currentUser) {
         showSearchContent();
+    } else if (tabName === 'chat' && currentUser) {
+        showChatContent();
     }
 }
 
@@ -2041,6 +2043,12 @@ function switchToLoggedInMode() {
         menuToggle.style.display = 'flex';
     }
 
+    // Mostrar botón de chat en header (solo en desktop, pero visible siempre)
+    const headerChatBtn = document.getElementById('headerChatBtn');
+    if (headerChatBtn && currentUser && (currentUser.tipo === 'cliente' || currentUser.tipo === 'tasker' || currentUser.esUsuarioDual)) {
+        headerChatBtn.style.display = 'flex';
+    }
+
     // Ocultar demo button en header (deshabilitado)
     const demoBtnHeader = document.querySelector('.demo-btn-header');
     if (demoBtnHeader) {
@@ -2058,12 +2066,18 @@ function switchToLoggedInMode() {
 function setupMobileMenu() {
     const dashboardItem = document.querySelector('.mobile-menu-item[onclick*="dashboard"]');
     const adminItem = document.querySelector('.mobile-menu-item[onclick*="admin"]');
+    const chatItem = document.getElementById('mobileChatBtn');
     const availabilityItem = document.getElementById('mobileAvailabilityBtn');
     const logoutItem = document.querySelector('.mobile-menu-item.logout-item');
 
     // Mostrar dashboard si existe
     if (dashboardItem) {
         dashboardItem.style.display = 'flex';
+    }
+
+    // Mostrar chat siempre cuando está logueado (clientes y taskers pueden chatear)
+    if (currentUser && (currentUser.tipo === 'cliente' || currentUser.tipo === 'tasker' || currentUser.esUsuarioDual) && chatItem) {
+        chatItem.style.display = 'flex';
     }
 
     // Mostrar admin solo si es admin
@@ -3176,6 +3190,12 @@ function logout() {
         menuToggle.style.display = 'none';
     }
 
+    // Ocultar botón de chat en header
+    const headerChatBtn = document.getElementById('headerChatBtn');
+    if (headerChatBtn) {
+        headerChatBtn.style.display = 'none';
+    }
+
     // Cerrar menú móvil si está abierto
     const mobileMenu = document.getElementById('mobileMenu');
     const menuOverlay = document.getElementById('menuOverlay');
@@ -3383,8 +3403,12 @@ async function loadTaskApplications(tareaId) {
                                     <p><strong>Fecha de aplicación:</strong> ${fecha}</p>
                                 </div>
                                 <div class="application-actions">
+                                    <button class="chat-btn" onclick="openChatModal(${tareaId})" title="Abrir chat con ${tasker.nombre}">
+                                        💬 Chat
+                                        <span id="chat-badge-${tareaId}" class="chat-badge" style="display: none;">0</span>
+                                    </button>
                                     <button class="accept-application-btn" onclick="acceptApplication(${aplicacion.id}, ${tareaId})">✅ Aceptar</button>
-                                    <button class="reject-application-btn" onclick="rejectApplication(${aplicacion.id})">❌ Rechazar</button>
+                                    <button class="reject-application-btn" onclick="rejectApplication(${aplicacion.id}, ${tareaId})">❌ Rechazar</button>
                                 </div>
                             </div>
                         `;
@@ -3446,10 +3470,40 @@ async function acceptApplication(applicationId, tareaId) {
     }
 }
 
-// Función para rechazar una aplicación (pendiente de implementar)
-async function rejectApplication(applicationId) {
-    showMessage('⚠️ Funcionalidad en desarrollo: Rechazar aplicación', 'info');
-    // TODO: Implementar lógica para rechazar aplicación
+// Función para rechazar una aplicación
+async function rejectApplication(applicationId, tareaId) {
+    if (!confirm('¿Estás seguro de que quieres rechazar esta aplicación?')) {
+        return;
+    }
+
+    try {
+        if (!currentToken) {
+            showMessage('❌ Debes iniciar sesión primero', 'error');
+            return;
+        }
+
+        const response = await fetch(`${API_BASE}/task/reject-application/${applicationId}`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage(`✅ ${data.message}`, 'success');
+            // Recargar las aplicaciones después de un breve delay
+            if (tareaId) {
+                setTimeout(() => {
+                    loadTaskApplications(tareaId);
+                }, 500);
+            }
+        } else {
+            showMessage(`❌ Error: ${data.message || 'Error al rechazar aplicación'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error rechazando aplicación:', error);
+        showMessage('❌ Error de conexión al rechazar aplicación', 'error');
+    }
 }
 
 // ========== FUNCIONES PARA PESTAÑAS DE CLIENTE ==========
@@ -4498,13 +4552,19 @@ async function loadAvailableTasks(filtros = {}) {
         const resultsCount = document.getElementById('resultsCount');
 
         if (response.ok) {
-            const tareas = data.tareas;
+            let tareas = data.tareas || [];
+            
+            // Filtrar tareas donde el usuario dual es el cliente (doble verificación en frontend)
+            if (currentUser && currentUser.esUsuarioDual && currentUser.cliente_id) {
+                tareas = tareas.filter(tarea => tarea.cliente_id !== currentUser.cliente_id);
+            }
+            
             const paginacion = data.paginacion;
             const filtrosAplicados = data.filtrosAplicados;
 
-            // Actualizar contador de resultados
+            // Actualizar contador de resultados (usar el número real de tareas después del filtro)
             if (resultsCount) {
-                resultsCount.textContent = `${paginacion.totalTareas} tareas encontradas`;
+                resultsCount.textContent = `${tareas.length} tareas encontradas`;
             }
 
             if (tareas && tareas.length > 0) {
@@ -8401,6 +8461,10 @@ let chatModalOpen = false;
 async function openChatModal(tareaId) {
     currentChatTareaId = tareaId;
     chatModalOpen = true;
+    
+    // Limpiar estado previo de mensajes para esta tarea (para detectar nuevos)
+    const tareaKey = `tarea-${tareaId}`;
+    lastMessagesState[tareaKey] = [];
 
     // Crear modal si no existe
     let chatModal = document.getElementById('chatModal');
@@ -8449,7 +8513,7 @@ async function openChatModal(tareaId) {
 /**
  * Cerrar modal de chat
  */
-function closeChatModal() {
+async function closeChatModal() {
     const chatModal = document.getElementById('chatModal');
     if (chatModal) {
         chatModal.style.display = 'none';
@@ -8457,6 +8521,15 @@ function closeChatModal() {
     chatModalOpen = false;
     currentChatTareaId = null;
     stopChatPolling();
+    
+    // Actualizar contadores inmediatamente
+    await loadUnreadMessageCounts();
+    
+    // Si estamos en la sección de chat, recargar la lista de conversaciones
+    const chatContent = document.getElementById('chatContent');
+    if (chatContent && chatContent.style.display !== 'none') {
+        loadChatConversations();
+    }
 }
 
 /**
@@ -8477,49 +8550,190 @@ async function loadChatMessages(tareaId) {
         if (response.ok) {
             const mensajes = data.mensajes || [];
             
+            // Detectar mensajes nuevos para notificaciones
+            const tareaKey = `tarea-${tareaId}`;
+            const previousMessages = lastMessagesState[tareaKey] || [];
+            const newMessages = mensajes.filter(m => {
+                const exists = previousMessages.find(pm => pm.id === m.id);
+                return !exists;
+            });
+
+            // Guardar estado actual
+            lastMessagesState[tareaKey] = mensajes;
+
+            // Mostrar notificaciones para mensajes nuevos
+            if (newMessages.length > 0 && Notification.permission === 'granted') {
+                const usuarioId = currentUser.tipo === 'cliente' 
+                    ? (currentUser.esUsuarioDual ? currentUser.cliente_id : currentUser.id)
+                    : (currentUser.esUsuarioDual ? currentUser.tasker_id : currentUser.id);
+                const usuarioTipo = currentUser.tipo;
+
+                newMessages.forEach(mensaje => {
+                    const esMio = mensaje.remitente_id === usuarioId && mensaje.remitente_tipo === usuarioTipo;
+                    if (!esMio) {
+                        showNewMessageNotification(tareaId, mensaje.mensaje, mensaje.remitente_nombre || 'Usuario');
+                    }
+                });
+            }
+            
             if (mensajes.length === 0) {
                 messagesContainer.innerHTML = `
                     <div class="chat-empty">
                         <p>💬 No hay mensajes aún.</p>
                         <p>¡Sé el primero en escribir!</p>
                     </div>
-                `;
+`;
             } else {
                 let messagesHTML = '';
-                const usuarioId = currentUser.tipo === 'cliente' 
-                    ? (currentUser.esUsuarioDual ? currentUser.cliente_id : currentUser.id)
-                    : (currentUser.esUsuarioDual ? currentUser.tasker_id : currentUser.id);
-                const usuarioTipo = currentUser.tipo;
+                
+                // Determinar el rol del usuario en esta tarea específica
+                const tarea = data.tarea;
+                let usuarioId, usuarioTipo;
+                
+                if (currentUser.esUsuarioDual) {
+                    // Usuario dual: determinar rol según la tarea
+                    const taskerId = currentUser.tasker_id;
+                    const clienteId = currentUser.cliente_id;
+                    
+                    // Verificar si es el tasker asignado en esta tarea
+                    if (tarea && tarea.tasker_id === taskerId) {
+                        usuarioId = taskerId;
+                        usuarioTipo = 'tasker';
+                    }
+                    // Verificar si es el cliente de esta tarea
+                    else if (tarea && tarea.cliente_id === clienteId) {
+                        usuarioId = clienteId;
+                        usuarioTipo = 'cliente';
+                    }
+                    // Si no está asignado pero hay mensajes, determinar por los mensajes
+                    else {
+                        // Verificar qué tipo de mensajes tiene el usuario en esta tarea
+                        const mensajesDelUsuario = data.mensajes.filter(m => 
+                            (m.remitente_id === taskerId && m.remitente_tipo === 'tasker') ||
+                            (m.remitente_id === clienteId && m.remitente_tipo === 'cliente')
+                        );
+                        
+                        if (mensajesDelUsuario.length > 0) {
+                            // Usar el tipo del primer mensaje del usuario
+                            const primerMensaje = mensajesDelUsuario[0];
+                            if (primerMensaje.remitente_tipo === 'tasker' && primerMensaje.remitente_id === taskerId) {
+                                usuarioId = taskerId;
+                                usuarioTipo = 'tasker';
+                            } else {
+                                usuarioId = clienteId;
+                                usuarioTipo = 'cliente';
+                            }
+                        } else {
+                            // Por defecto, si es usuario dual y no hay contexto, usar tasker
+                            usuarioId = taskerId;
+                            usuarioTipo = 'tasker';
+                        }
+                    }
+                } else if (currentUser.tipo === 'cliente') {
+                    // Usuario es cliente (no dual)
+                    usuarioId = currentUser.id;
+                    usuarioTipo = 'cliente';
+                } else if (currentUser.tipo === 'tasker') {
+                    // Usuario es tasker (no dual)
+                    usuarioId = currentUser.id;
+                    usuarioTipo = 'tasker';
+                } else {
+                    // Fallback
+                    usuarioId = currentUser.id;
+                    usuarioTipo = currentUser.tipo;
+                }
 
+                // Debug: mostrar información
+                console.log('🔍 Chat - Usuario actual:', {
+                    tipo: currentUser.tipo,
+                    esUsuarioDual: currentUser.esUsuarioDual,
+                    usuarioId,
+                    usuarioTipo,
+                    tarea: tarea ? { cliente_id: tarea.cliente_id, tasker_id: tarea.tasker_id } : null
+                });
+
+                let mensajesNoLeidos = [];
+                
+                // Para usuarios duales, necesitamos verificar ambos IDs posibles
+                const posiblesIds = [];
+                if (currentUser.esUsuarioDual) {
+                    // Siempre agregar ambos IDs posibles para usuarios duales
+                    posiblesIds.push({ id: currentUser.tasker_id, tipo: 'tasker' });
+                    posiblesIds.push({ id: currentUser.cliente_id, tipo: 'cliente' });
+                    // También verificar si hay mensajes con el ID original
+                    if (currentUser.id !== currentUser.tasker_id && currentUser.id !== currentUser.cliente_id) {
+                        posiblesIds.push({ id: currentUser.id, tipo: 'tasker' });
+                        posiblesIds.push({ id: currentUser.id, tipo: 'cliente' });
+                    }
+                } else {
+                    posiblesIds.push({ id: usuarioId, tipo: usuarioTipo });
+                }
+                
                 mensajes.forEach(mensaje => {
-                    const esMio = mensaje.remitente_id === usuarioId && mensaje.remitente_tipo === usuarioTipo;
-                    const fecha = new Date(mensaje.createdAt).toLocaleString('es-ES', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    });
+                    // Verificar si el mensaje es mío comparando con todos los IDs posibles
+                    let esMio = posiblesIds.some(possible => 
+                        mensaje.remitente_id === possible.id && mensaje.remitente_tipo === possible.tipo
+                    );
+                    
+                    // Si no se encontró, verificar también con el usuarioId y usuarioTipo directamente
+                    if (!esMio) {
+                        esMio = mensaje.remitente_id === usuarioId && mensaje.remitente_tipo === usuarioTipo;
+                    }
+                    
+                    // Para taskers, también verificar si el mensaje fue enviado por el tasker_id o el id original
+                    if (!esMio && currentUser.tipo === 'tasker') {
+                        const taskerId = currentUser.esUsuarioDual ? currentUser.tasker_id : currentUser.id;
+                        if (mensaje.remitente_tipo === 'tasker' && 
+                            (mensaje.remitente_id === taskerId || mensaje.remitente_id === currentUser.id)) {
+                            esMio = true;
+                        }
+                    }
+                    
+                    // Debug para el primer mensaje
+                    if (mensajes.indexOf(mensaje) === 0) {
+                        console.log('🔍 Chat - Primer mensaje:', {
+                            remitente_id: mensaje.remitente_id,
+                            remitente_tipo: mensaje.remitente_tipo,
+                            usuarioId,
+                            usuarioTipo,
+                            posiblesIds,
+                            esMio,
+                            currentUser: {
+                                id: currentUser.id,
+                                tipo: currentUser.tipo,
+                                esUsuarioDual: currentUser.esUsuarioDual,
+                                tasker_id: currentUser.tasker_id,
+                                cliente_id: currentUser.cliente_id
+                            }
+                        });
+                    }
+                    
+                    // Formato de fecha mejorado (tiempo relativo)
+                    const fecha = formatMessageTime(mensaje.createdAt);
 
                     messagesHTML += `
                         <div class="chat-message ${esMio ? 'chat-message-own' : 'chat-message-other'}">
-                            <div class="chat-message-header">
-                                <span class="chat-message-name">${mensaje.remitente_nombre || (mensaje.remitente_tipo === 'cliente' ? 'Cliente' : 'Tasker')}</span>
-                                <span class="chat-message-time">${fecha}</span>
-                            </div>
                             <div class="chat-message-text">${escapeHtml(mensaje.mensaje)}</div>
-                            ${mensaje.leido && !esMio ? '<span class="chat-message-status read">✓✓</span>' : ''}
+                            <div class="chat-message-footer">
+                                <span class="chat-message-time">${fecha}</span>
+                                ${esMio ? `<span class="chat-message-status ${mensaje.leido ? 'read' : ''}">${mensaje.leido ? '✓✓' : '✓'}</span>` : ''}
+                            </div>
                         </div>
                     `;
 
-                    // Marcar como leído si no es mío y no está leído
+                    // Guardar mensajes no leídos para marcarlos después (solo los que NO son míos)
                     if (!esMio && !mensaje.leido) {
-                        markMessageAsRead(mensaje.id);
+                        mensajesNoLeidos.push(mensaje.id);
                     }
                 });
 
                 messagesContainer.innerHTML = messagesHTML;
                 scrollChatToBottom();
+                
+                // Marcar todos los mensajes no leídos como leídos de una vez
+                if (mensajesNoLeidos.length > 0) {
+                    markAllMessagesAsRead(mensajesNoLeidos, tareaId);
+                }
             }
         } else {
             messagesContainer.innerHTML = `
@@ -8589,6 +8803,56 @@ async function sendChatMessage() {
 }
 
 /**
+ * Generar iniciales desde un nombre
+ */
+function getInitials(nombre) {
+    if (!nombre) return '?';
+    const partes = nombre.trim().split(' ');
+    if (partes.length === 1) {
+        return partes[0].substring(0, 2).toUpperCase();
+    }
+    return (partes[0].charAt(0) + partes[partes.length - 1].charAt(0)).toUpperCase();
+}
+
+/**
+ * Formatear tiempo del mensaje (tiempo relativo)
+ */
+function formatMessageTime(dateString) {
+    const fecha = new Date(dateString);
+    const ahora = new Date();
+    const diffMs = ahora - fecha;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    // Si es hoy
+    if (diffDays === 0) {
+        if (diffMins < 1) return 'Ahora';
+        if (diffMins < 60) return `Hace ${diffMins} min`;
+        if (diffHours < 24) return `Hace ${diffHours} h`;
+    }
+    
+    // Si es ayer
+    if (diffDays === 1) {
+        return 'Ayer ' + fecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    }
+    
+    // Si es esta semana
+    if (diffDays < 7) {
+        const dias = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+        return dias[fecha.getDay()] + ' ' + fecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    }
+    
+    // Más de una semana: fecha completa
+    return fecha.toLocaleDateString('es-ES', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+/**
  * Marcar mensaje como leído
  * @param {number} mensajeId - ID del mensaje
  */
@@ -8600,6 +8864,29 @@ async function markMessageAsRead(mensajeId) {
         });
     } catch (error) {
         console.error('Error marcando mensaje como leído:', error);
+    }
+}
+
+/**
+ * Marcar todos los mensajes no leídos como leídos
+ * @param {Array<number>} mensajeIds - IDs de los mensajes
+ * @param {number} tareaId - ID de la tarea
+ */
+async function markAllMessagesAsRead(mensajeIds, tareaId) {
+    try {
+        // Marcar todos en paralelo
+        await Promise.all(mensajeIds.map(id => markMessageAsRead(id)));
+        
+        // Actualizar badges inmediatamente
+        await loadUnreadMessageCounts();
+        
+        // Si estamos en la lista de conversaciones, recargarla
+        const chatContent = document.getElementById('chatContent');
+        if (chatContent && chatContent.style.display !== 'none') {
+            loadChatConversations();
+        }
+    } catch (error) {
+        console.error('Error marcando mensajes como leídos:', error);
     }
 }
 
@@ -8662,7 +8949,10 @@ async function loadUnreadMessageCounts() {
         const data = await response.json();
 
         if (response.ok && data.tareas) {
+            let totalUnread = 0;
+            
             data.tareas.forEach(tareaInfo => {
+                // Actualizar badges en las tareas
                 const badge = document.getElementById(`chat-badge-${tareaInfo.tarea_id}`);
                 if (badge) {
                     if (tareaInfo.mensajes_no_leidos > 0) {
@@ -8672,10 +8962,267 @@ async function loadUnreadMessageCounts() {
                         badge.style.display = 'none';
                     }
                 }
+                
+                // Sumar total de no leídos
+                totalUnread += tareaInfo.mensajes_no_leidos || 0;
             });
+
+            // Actualizar badge en navegación
+            updateChatNavBadge(totalUnread);
         }
     } catch (error) {
         console.error('Error cargando contadores de mensajes:', error);
+    }
+}
+
+// Variables globales para notificaciones
+let notificationPermission = null;
+let lastUnreadCount = 0;
+let lastMessagesState = {}; // Para detectar mensajes nuevos
+
+// Solicitar permiso de notificaciones al cargar
+if ('Notification' in window) {
+    if (Notification.permission === 'default') {
+        // No solicitar automáticamente, solo cuando el usuario interactúe
+    } else {
+        notificationPermission = Notification.permission;
+    }
+}
+
+/**
+ * Solicitar permiso de notificaciones
+ */
+function requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().then(permission => {
+            notificationPermission = permission;
+            if (permission === 'granted') {
+                showMessage('✅ Notificaciones activadas', 'success');
+            }
+        });
+    }
+}
+
+/**
+ * Mostrar notificación de nuevo mensaje
+ */
+function showNewMessageNotification(tareaId, mensaje, remitenteNombre) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+        return;
+    }
+
+    // No mostrar notificación si el chat está abierto para esta tarea
+    if (chatModalOpen && currentChatTareaId === tareaId) {
+        return;
+    }
+
+    const notification = new Notification('💬 Nuevo mensaje', {
+        body: `${remitenteNombre}: ${mensaje.substring(0, 50)}${mensaje.length > 50 ? '...' : ''}`,
+        icon: '/favicon.ico',
+        tag: `chat-${tareaId}`,
+        requireInteraction: false
+    });
+
+    notification.onclick = () => {
+        window.focus();
+        if (currentChatTareaId !== tareaId) {
+            openChatModal(tareaId);
+        }
+        notification.close();
+    };
+
+    // Cerrar automáticamente después de 5 segundos
+    setTimeout(() => notification.close(), 5000);
+}
+
+/**
+ * Mostrar contenido de la sección de chat
+ */
+function showChatContent() {
+    const chatContent = document.getElementById('chatContent');
+    if (!chatContent) return;
+
+    const chatHTML = `
+        <div class="chat-section">
+            <div class="chat-section-header">
+                <h2>💬 Mensajes</h2>
+                <div class="chat-header-actions">
+                    <button class="btn-secondary btn-sm" onclick="requestNotificationPermission()" title="Activar notificaciones">
+                        🔔 Notificaciones
+                    </button>
+                </div>
+            </div>
+            <div id="chatConversationsList" class="chat-conversations-list">
+                <div class="chat-loading">Cargando conversaciones...</div>
+            </div>
+        </div>
+    `;
+
+    chatContent.innerHTML = chatHTML;
+    loadChatConversations();
+}
+
+/**
+ * Cargar lista de conversaciones
+ */
+async function loadChatConversations() {
+    try {
+        const conversationsList = document.getElementById('chatConversationsList');
+        if (!conversationsList) return;
+
+        const response = await fetch(`${API_BASE}/chat/tareas-con-mensajes`, {
+            headers: getAuthHeaders()
+        });
+
+        const data = await response.json();
+        
+        // Debug
+        console.log('🔍 Chat - Respuesta del backend:', {
+            ok: response.ok,
+            status: response.status,
+            tareasCount: data.tareas ? data.tareas.length : 0,
+            tareas: data.tareas
+        });
+
+        if (response.ok) {
+            const tareas = data.tareas || [];
+            
+            if (tareas.length === 0) {
+                conversationsList.innerHTML = `
+                    <div class="chat-empty">
+                        <p>💬 No tienes conversaciones aún</p>
+                        <p style="font-size: 0.9em; color: #94a3b8; margin-top: 10px;">
+                            Los mensajes aparecerán aquí cuando empieces a chatear sobre una tarea
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+
+            let conversationsHTML = '';
+            let totalUnread = 0;
+
+            // Ordenar por último mensaje (más reciente primero)
+            const sortedTareas = tareas.sort((a, b) => {
+                const dateA = new Date(a.ultimo_mensaje_fecha || 0);
+                const dateB = new Date(b.ultimo_mensaje_fecha || 0);
+                return dateB - dateA;
+            });
+
+            sortedTareas.forEach(tareaInfo => {
+                totalUnread += tareaInfo.mensajes_no_leidos || 0;
+                
+                // Formatear fecha del último mensaje (tiempo relativo)
+                const fechaUltimo = tareaInfo.ultimo_mensaje_fecha 
+                    ? formatMessageTime(tareaInfo.ultimo_mensaje_fecha)
+                    : '';
+
+                // Obtener información del otro usuario (compatibilidad con formato antiguo)
+                const otroUsuario = tareaInfo.otro_usuario || {
+                    nombre: tareaInfo.otro_usuario_nombre || 'Usuario',
+                    tipo: tareaInfo.otro_usuario_tipo || 'cliente',
+                    foto: null
+                };
+
+                // Generar iniciales para el avatar
+                const iniciales = getInitials(otroUsuario.nombre);
+                const avatarIcon = otroUsuario.tipo === 'cliente' ? '👤' : '👷';
+                
+                // Avatar con foto o iniciales
+                const avatarHTML = otroUsuario.foto 
+                    ? `<img src="${otroUsuario.foto}" alt="${otroUsuario.nombre}" class="conversation-avatar-img">`
+                    : `<span class="conversation-avatar-initials">${iniciales}</span>`;
+
+                conversationsHTML += `
+                    <div class="chat-conversation-item" onclick="openChatModal(${tareaInfo.tarea_id})">
+                        <div class="conversation-avatar">
+                            ${avatarHTML}
+                            ${otroUsuario.tipo === 'tasker' ? '<span class="conversation-avatar-badge">👷</span>' : ''}
+                        </div>
+                        <div class="conversation-content">
+                            <div class="conversation-header">
+                                <div class="conversation-name-wrapper">
+                                    <span class="conversation-name">${escapeHtml(otroUsuario.nombre)}</span>
+                                    ${otroUsuario.telefono ? `<span class="conversation-phone">📞 ${escapeHtml(otroUsuario.telefono)}</span>` : ''}
+                                </div>
+                                ${fechaUltimo ? `<span class="conversation-time">${fechaUltimo}</span>` : ''}
+                            </div>
+                            <div class="conversation-preview">
+                                <span class="conversation-last-message">${escapeHtml(tareaInfo.ultimo_mensaje || 'Sin mensajes')}</span>
+                                ${tareaInfo.mensajes_no_leidos > 0 ? `
+                                    <span class="conversation-unread-badge">${tareaInfo.mensajes_no_leidos}</span>
+                                ` : ''}
+                            </div>
+                            <div class="conversation-task-info">
+                                <span class="task-preview-text">📋 ${escapeHtml(tareaInfo.tarea_descripcion || 'Tarea')}</span>
+                                <span class="task-status-badge task-status-${tareaInfo.estado?.toLowerCase() || 'pendiente'}">${tareaInfo.estado || 'PENDIENTE'}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            conversationsList.innerHTML = conversationsHTML;
+
+            // Actualizar badge en navegación
+            updateChatNavBadge(totalUnread);
+        } else {
+            conversationsList.innerHTML = `
+                <div class="chat-error">
+                    <p>❌ Error al cargar conversaciones</p>
+                    <p style="font-size: 0.9em; color: #94a3b8;">${data.message || 'Intenta recargar la página'}</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error cargando conversaciones:', error);
+        const conversationsList = document.getElementById('chatConversationsList');
+        if (conversationsList) {
+            conversationsList.innerHTML = `
+                <div class="chat-error">
+                    <p>❌ Error de conexión</p>
+                    <p style="font-size: 0.9em; color: #94a3b8;">No se pudo conectar al servidor</p>
+                </div>
+            `;
+        }
+    }
+}
+
+/**
+ * Actualizar badge de chat en la navegación
+ */
+function updateChatNavBadge(count) {
+    // Badge en bottom nav (móvil)
+    const navBadge = document.getElementById('chat-nav-badge');
+    if (navBadge) {
+        if (count > 0) {
+            navBadge.textContent = count > 99 ? '99+' : count;
+            navBadge.style.display = 'inline-block';
+        } else {
+            navBadge.style.display = 'none';
+        }
+    }
+    
+    // Badge en header (desktop)
+    const headerBadge = document.getElementById('header-chat-badge');
+    if (headerBadge) {
+        if (count > 0) {
+            headerBadge.textContent = count > 99 ? '99+' : count;
+            headerBadge.style.display = 'inline-block';
+        } else {
+            headerBadge.style.display = 'none';
+        }
+    }
+    
+    // Badge en menú móvil
+    const menuBadge = document.getElementById('mobile-chat-badge');
+    if (menuBadge) {
+        if (count > 0) {
+            menuBadge.textContent = count > 99 ? '99+' : count;
+            menuBadge.style.display = 'inline-block';
+        } else {
+            menuBadge.style.display = 'none';
+        }
     }
 }
 
@@ -8683,6 +9230,11 @@ async function loadUnreadMessageCounts() {
 setInterval(() => {
     if (currentUser && currentToken) {
         loadUnreadMessageCounts();
+        // Si estamos en la sección de chat, recargar la lista para mantener el historial actualizado
+        const chatContent = document.getElementById('chatContent');
+        if (chatContent && chatContent.style.display !== 'none' && !chatContent.classList.contains('hidden')) {
+            loadChatConversations();
+        }
     }
 }, 10000);
 

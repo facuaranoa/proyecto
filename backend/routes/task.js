@@ -6,7 +6,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { createTask, getUserTasks, getAvailableTasks, applyToTask, getTaskApplications, acceptApplication, getMyAssignedTasks, startTask, completeTask, confirmPayment, confirmPaymentReceived, getCategorias } = require('../controllers/taskController');
+const { createTask, getUserTasks, getAvailableTasks, applyToTask, getTaskApplications, acceptApplication, rejectApplication, getMyAssignedTasks, startTask, completeTask, confirmPayment, confirmPaymentReceived, getCategorias } = require('../controllers/taskController');
 const { authenticateToken } = require('../middleware/auth');
 
 /**
@@ -50,6 +50,12 @@ router.get('/applications/:tareaId', authenticateToken, getTaskApplications);
  * Cliente acepta una aplicación (elige un tasker) - requiere autenticación de cliente
  */
 router.post('/accept-application/:applicationId', authenticateToken, acceptApplication);
+
+/**
+ * POST /api/task/reject-application/:applicationId
+ * Cliente rechaza una aplicación - requiere autenticación de cliente
+ */
+router.post('/reject-application/:applicationId', authenticateToken, rejectApplication);
 
 /**
  * GET /api/task/my-assigned-tasks
